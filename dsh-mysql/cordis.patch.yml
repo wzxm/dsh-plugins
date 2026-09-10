@@ -17,10 +17,11 @@
         transport: stdio
         command: npx
         args: ['-y', '@benborla29/mcp-server-mysql']
-        env:
-          MYSQL_HOST: !!js process.env.DSH_MYSQL_HOST
-          MYSQL_PORT: !!js process.env.DSH_MYSQL_PORT
-          MYSQL_USER: !!js process.env.DSH_MYSQL_USER
-          MYSQL_PASSWORD: !!js process.env.DSH_MYSQL_PASSWORD
-          MYSQL_DATABASE: !!js process.env.DSH_MYSQL_DATABASE
+        env: !!js ({
+          MYSQL_HOST: process.env.DSH_MYSQL_HOST ?? '',
+          MYSQL_PORT: process.env.DSH_MYSQL_PORT ?? '',
+          MYSQL_USER: process.env.DSH_MYSQL_USER ?? '',
+          MYSQL_PASSWORD: process.env.DSH_MYSQL_PASSWORD ?? '',
+          MYSQL_DATABASE: process.env.DSH_MYSQL_DATABASE ?? '',
+        })
         failOnStartupError: true
