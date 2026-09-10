@@ -1,0 +1,26 @@
+dsh-mysql/cordis.patch.yml
+  s_dc2fb721b1e136::t_ddf6e20044f160 20-26
+dsh-mysql/package.json
+  s_dc2fb721b1e136::t_698dbd1720af55 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "499f24f73ac72f530d877a5f29e0306be78e91ab",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  },
+  "sessions": {
+    "s_dc2fb721b1e136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08908-2ee0-7330-b43f-3e4cc760d91b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
