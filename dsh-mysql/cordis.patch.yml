@@ -1,0 +1,26 @@
+# MySQL MCP bridge. Keep credentials outside this file.
+- insert:
+    - id: dsh-mysql-authorization
+      name: '@deepseek-ai/dsh-mysql'
+      config:
+        enabled: true
+        allowInsert: !!js process.env.DSH_MYSQL_ALLOW_INSERT === 'true'
+        allowUpdate: !!js process.env.DSH_MYSQL_ALLOW_UPDATE === 'true'
+        allowDelete: !!js process.env.DSH_MYSQL_ALLOW_DELETE === 'true'
+        allowAlter: !!js process.env.DSH_MYSQL_ALLOW_ALTER === 'true'
+        allowTruncate: !!js process.env.DSH_MYSQL_ALLOW_TRUNCATE === 'true'
+        allowDrop: !!js process.env.DSH_MYSQL_ALLOW_DROP === 'true'
+    - id: dsh-mysql-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: mysql
+        transport: stdio
+        command: npx
+        args: ['-y', '@benborla29/mcp-server-mysql']
+        env:
+          MYSQL_HOST: !!js process.env.DSH_MYSQL_HOST
+          MYSQL_PORT: !!js process.env.DSH_MYSQL_PORT
+          MYSQL_USER: !!js process.env.DSH_MYSQL_USER
+          MYSQL_PASSWORD: !!js process.env.DSH_MYSQL_PASSWORD
+          MYSQL_DATABASE: !!js process.env.DSH_MYSQL_DATABASE
+        failOnStartupError: true
