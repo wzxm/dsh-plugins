@@ -1,0 +1,24 @@
+name: Release dsh-mysql
+
+on:
+  push:
+    tags:
+      - 'dsh-mysql-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release archive
+        run: |
+          cd dsh-mysql
+          npm pack --ignore-scripts
+          mv wzxm-dsh-mysql-*.tgz dsh-mysql.tgz
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dsh-mysql/dsh-mysql.tgz

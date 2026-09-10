@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-mysql",
+  "name": "@wzxm/dsh-mysql",
   "description": "Authorized MySQL MCP bundle for DeepSeek Harness",
   "version": "0.1.0",
   "type": "module",

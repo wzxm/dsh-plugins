@@ -1,7 +1,7 @@
 # MySQL MCP bridge. Keep credentials outside this file.
 - insert:
     - id: dsh-mysql-authorization
-      name: '@deepseek-ai/dsh-mysql'
+      name: '@wzxm/dsh-mysql'
       config:
         enabled: true
         allowInsert: !!js process.env.DSH_MYSQL_ALLOW_INSERT === 'true'

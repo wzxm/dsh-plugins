@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-mysql
+# @wzxm/dsh-mysql
 
 Authorized MySQL MCP tools for DeepSeek Harness. Read tools are available through the configured MCP server. Write tools are disabled by default and pass through the dsh approval seam when enabled.
 

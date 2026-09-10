@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-mysql
+# @wzxm/dsh-mysql
 
 面向 DeepSeek Harness 的授权 MySQL MCP 插件。查询工具由配置的 MCP server 提供；写操作默认关闭，开启后仍必须通过 dsh 审批 seam 的一次性授权。
 
