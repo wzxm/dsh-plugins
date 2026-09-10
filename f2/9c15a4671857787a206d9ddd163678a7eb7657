@@ -1,0 +1,23 @@
+dsh-mysql/lib/index.d.ts
+  s_dc2fb721b1e136::t_d1fda20594709f 1-316
+dsh-mysql/lib/index.js
+  s_dc2fb721b1e136::t_d1fda20594709f 1-855
+.gitignore
+  s_dc2fb721b1e136::t_69e03e97508812 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f29c15a4671857787a206d9ddd163678a7eb7657",
+  "prompts": {},
+  "sessions": {
+    "s_dc2fb721b1e136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08908-2ee0-7330-b43f-3e4cc760d91b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
