@@ -1,0 +1,34 @@
+dsh-mysql/package.json
+  h_1811824342b47a 2
+dsh-mysql/README.md
+  s_dc2fb721b1e136::t_b84f046c258206 1
+dsh-mysql/README.zh.md
+  s_dc2fb721b1e136::t_b84f046c258206 1
+dsh-mysql/cordis.patch.yml
+  s_dc2fb721b1e136::t_b84f046c258206 4
+.github/workflows/release-dsh-mysql.yml
+  s_dc2fb721b1e136::t_b84f046c258206 1-24
+dsh-mysql/pnpm-lock.yaml
+  h_1811824342b47a 1-1108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0a8989f2bfad3cd92ad7db4be3f7e26d3ec1b8cb",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  },
+  "sessions": {
+    "s_dc2fb721b1e136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08908-2ee0-7330-b43f-3e4cc760d91b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
