@@ -1,0 +1,26 @@
+README.md
+  s_dc2fb721b1e136::t_405f471705667a 2-77
+.gitignore
+  h_1811824342b47a 3-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a93a8993bb894c9e49c2c08b142a844c0f2f3509",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  },
+  "sessions": {
+    "s_dc2fb721b1e136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08908-2ee0-7330-b43f-3e4cc760d91b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
