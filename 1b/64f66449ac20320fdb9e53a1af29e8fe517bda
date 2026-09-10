@@ -1,0 +1,47 @@
+dsh-mysql/package.json
+  s_dc2fb721b1e136::t_a96df3b79493ec 1-16
+  s_dc2fb721b1e136::t_bbf6edbecab1a9 17-19
+  s_dc2fb721b1e136::t_24ffb565199461 31-32
+  s_dc2fb721b1e136::t_d2d66df5e3c1b2 20-30
+dsh-mysql/README.md
+  s_dc2fb721b1e136::t_c50d57c65f73f8 8
+  s_dc2fb721b1e136::t_b47a3ad24fd92f 5-7
+  s_dc2fb721b1e136::t_846aa49c1bff71 9-11
+  s_dc2fb721b1e136::t_e5cccd26661592 1-4,12-13
+.gitignore
+  s_dc2fb721b1e136::t_69e03e97508812 1-2
+dsh-mysql/lib/index.js
+  s_dc2fb721b1e136::t_d1fda20594709f 1-855
+dsh-mysql/lib/index.d.ts
+  s_dc2fb721b1e136::t_d1fda20594709f 1-316
+dsh-mysql/tsconfig.json
+  s_dc2fb721b1e136::t_dd04ddac1b5c4f 1
+  s_dc2fb721b1e136::t_ae14353e9574aa 4
+  s_dc2fb721b1e136::t_d2d66df5e3c1b2 2-3
+dsh-mysql/README.zh.md
+  s_dc2fb721b1e136::t_c50d57c65f73f8 8
+  s_dc2fb721b1e136::t_e3a8c0e6411f32 5-7
+  s_dc2fb721b1e136::t_7428dc01622f6b 9-11
+  s_dc2fb721b1e136::t_fddda442a98e48 1-4,12-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1b64f66449ac20320fdb9e53a1af29e8fe517bda",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  },
+  "sessions": {
+    "s_dc2fb721b1e136": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08908-2ee0-7330-b43f-3e4cc760d91b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}
