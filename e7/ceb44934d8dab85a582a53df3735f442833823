@@ -1,0 +1,41 @@
+.gitignore
+  s_b279e1dde7031d::t_ee174ccfe1eee1 5-10
+README.md
+  s_b279e1dde7031d::t_48ee4b0fedce45 9,27-60,72,76-82,85,95-98,100,103-104,110
+dsh-mysql/README.md
+  s_b279e1dde7031d::t_3cdd2aee49a164 8,11,13-116
+dsh-mysql/README.zh.md
+  s_b279e1dde7031d::t_29c028f18620f1 8,11,13-116
+dsh-mysql/cordis.patch.yml
+  s_b279e1dde7031d::t_9394c23b77c6eb 1-11,17-19,32-70
+dsh-mysql/lib/index.d.ts
+  s_b279e1dde7031d::t_29e171d76a930e 3,18,22,100,299,306,310-343,351
+dsh-mysql/lib/index.d.ts.map
+  s_b279e1dde7031d::t_523b210ea9de2d 1
+dsh-mysql/lib/index.js
+  s_b279e1dde7031d::t_ae6ac95fa0e8a5 2,37-41,46,55,60,66,74,127-135,140,144,148,150,152,154,156,168,170,178,181-184,187,191,195,198,797,806-818,820-821,825-826,830-935,937-997,999-1005,1009,1011-1031,1033,1055
+dsh-mysql/lib/index.js.map
+  s_b279e1dde7031d::t_1584f08ddffad6 1
+dsh-mysql/package.json
+  s_b279e1dde7031d::t_7a495c9339da1d 4
+dsh-mysql/src/index.ts
+  s_b279e1dde7031d::t_a671fa5542f4f0 1-16,28,35,41,51-64,66-67,71-72,75-221,223-228,231,233-239,244,246-273,276
+dsh-mysql/tsdown.config.ts
+  s_b279e1dde7031d::t_44849a1c6aa13a 6,11-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e7ceb44934d8dab85a582a53df3735f442833823",
+  "prompts": {},
+  "sessions": {
+    "s_b279e1dde7031d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3d1d5bf7-89be-441d-9c64-00e33ed1587e",
+        "model": "unknown"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
