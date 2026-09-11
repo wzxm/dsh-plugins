@@ -1,6 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 
-//#region ../../../vendor/cosmokit/src/types.d.ts
+//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/types/types.d.ts
 declare function isArrayBufferLike(value: any): value is ArrayBufferLike;
 declare function isArrayBufferSource(value: any): value is Binary.Source;
 /** Binary source detection and base64/hex conversion helpers. */
@@ -15,11 +15,11 @@ declare namespace Binary {
   function fromHex(source: string): ArrayBuffer;
 }
 //#endregion
-//#region ../../../vendor/cosmokit/src/misc.d.ts
+//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/types/misc.d.ts
 /** String/symbol keyed dictionary type. */
 type Dict<T = any, K extends string | symbol = string> = { [key in K]: T };
 //#endregion
-//#region ../../../node_modules/.pnpm/@standard-schema+spec@1.1.0/node_modules/@standard-schema/spec/dist/index.d.ts
+//#region node_modules/.pnpm/@standard-schema+spec@1.1.0/node_modules/@standard-schema/spec/dist/index.d.ts
 /** The Standard Typed interface. This is a base type extended by other specs. */
 interface StandardTypedV1<Input = unknown, Output = Input> {
   /** The Standard properties. */
@@ -97,7 +97,7 @@ declare namespace StandardSchemaV1 {
 }
 /** The Standard JSON Schema interface. */
 //#endregion
-//#region ../../../vendor/schemastery/src/index.d.ts
+//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.2/node_modules/@deepseek-ai/schemastery/lib/types/index.d.ts
 declare const kSchema: unique symbol;
 declare global {
   namespace Schemastery {
@@ -296,15 +296,51 @@ declare const name = "dsh-mysql";
 declare const inject: string[];
 interface Config {
   enabled?: boolean;
+  serverName?: string;
   allowInsert?: boolean;
   allowUpdate?: boolean;
   allowDelete?: boolean;
   allowAlter?: boolean;
   allowTruncate?: boolean;
   allowDrop?: boolean;
+  /** Reserved for a future result-size guard; accepted so existing config keeps loading. */
   maxAffectedRows?: number;
 }
 declare const Config: Schema<Config>;
+/** The `allow*` switches, keyed by the write they permit. */
+type WriteSetting = 'allowInsert' | 'allowUpdate' | 'allowDelete' | 'allowAlter' | 'allowTruncate' | 'allowDrop';
+/**
+ * Split a SQL script into statements on top-level semicolons.
+ *
+ * String literals, quoted identifiers, and comments are copied through
+ * untouched so a `;` inside `'a;b'` or inside a comment never splits a
+ * statement — mis-splitting would let a write hide behind a read's keyword.
+ * @param sql - the script to split.
+ * @returns each statement with surrounding whitespace and comments trimmed.
+ */
+declare function splitStatements(sql: string): string[];
+/** What one SQL payload requires before it may run. */
+type SqlVerdict = {
+  kind: 'read';
+} | {
+  kind: 'write';
+  setting: WriteSetting;
+} | {
+  kind: 'unsupported';
+  keyword: string;
+} | {
+  kind: 'empty';
+};
+/**
+ * Classify one submitted SQL script.
+ *
+ * A script may hold several `;`-separated statements, so the verdict is the
+ * strictest one any statement produces: one write makes the whole script a
+ * write, and one unsupported keyword denies the whole script.
+ * @param sql - the script from the tool call's `sql` argument.
+ * @returns the approval requirement the script carries.
+ */
+declare function classifySql(sql: string): SqlVerdict;
 declare function apply(ctx: Context, config?: Config): void;
 declare const _default: {
   name: string;
@@ -312,5 +348,5 @@ declare const _default: {
   apply: typeof apply;
 };
 //#endregion
-export { Config, apply, _default as default, inject, name };
+export { Config, SqlVerdict, apply, classifySql, _default as default, inject, name, splitStatements };
 //# sourceMappingURL=index.d.ts.map

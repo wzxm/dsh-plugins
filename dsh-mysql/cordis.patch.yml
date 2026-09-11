@@ -1,9 +1,22 @@
-# MySQL MCP bridge. Keep credentials outside this file.
+# MySQL MCP bridge for DeepSeek Harness.
+#
+# Two rows: the authorization seam this package owns, and the MCP client that
+# launches the upstream MySQL server. Both take their switches from the
+# environment, so this file stays credential-free and safe to commit.
+#
+# YAML NOTE — read before editing the `env` value below. `!!js` is declared as
+# a *scalar* tag by the DSH overlay dialect, so a multi-line object must use the
+# `|` block form. A parenthesised flow mapping spanning several lines is not
+# valid YAML: the profile fails to parse at boot and DSH refuses to start at
+# all. Keep every `!!js` value a single scalar.
 - insert:
     - id: dsh-mysql-authorization
       name: '@wzxm/dsh-mysql'
       config:
         enabled: true
+        # Must match the mcp-client row's `serverName`; the seam derives the
+        # `mcp__<serverName>__` tool prefix from it.
+        serverName: mysql
         allowInsert: !!js process.env.DSH_MYSQL_ALLOW_INSERT === 'true'
         allowUpdate: !!js process.env.DSH_MYSQL_ALLOW_UPDATE === 'true'
         allowDelete: !!js process.env.DSH_MYSQL_ALLOW_DELETE === 'true'
@@ -16,12 +29,42 @@
         serverName: mysql
         transport: stdio
         command: npx
-        args: ['-y', '@benborla29/mcp-server-mysql']
-        env: !!js ({
-          MYSQL_HOST: process.env.DSH_MYSQL_HOST ?? '',
-          MYSQL_PORT: process.env.DSH_MYSQL_PORT ?? '',
-          MYSQL_USER: process.env.DSH_MYSQL_USER ?? '',
-          MYSQL_PASSWORD: process.env.DSH_MYSQL_PASSWORD ?? '',
-          MYSQL_DATABASE: process.env.DSH_MYSQL_DATABASE ?? '',
-        })
-        failOnStartupError: true
+        # Pinned: the server's tool surface and env contract are version-
+        # specific, and this bridge reads both.
+        args: ['-y', '@benborla29/mcp-server-mysql@2.0.9']
+        # The upstream server reads MYSQL_PASS / MYSQL_DB (not MYSQL_PASSWORD /
+        # MYSQL_DATABASE), and gates writes behind its own ALLOW_*_OPERATION
+        # switches. Those mirrors must agree with the seam row above: a write
+        # the seam permits is still refused by the server unless its twin is on.
+        env: !!js |
+          ({
+            MYSQL_HOST: process.env.DSH_MYSQL_HOST ?? '127.0.0.1',
+            MYSQL_PORT: process.env.DSH_MYSQL_PORT ?? '3306',
+            MYSQL_USER: process.env.DSH_MYSQL_USER ?? '',
+            MYSQL_PASS: process.env.DSH_MYSQL_PASSWORD ?? '',
+            MYSQL_DB: process.env.DSH_MYSQL_DATABASE ?? '',
+            ALLOW_INSERT_OPERATION: process.env.DSH_MYSQL_ALLOW_INSERT === 'true' ? 'true' : 'false',
+            ALLOW_UPDATE_OPERATION: process.env.DSH_MYSQL_ALLOW_UPDATE === 'true' ? 'true' : 'false',
+            ALLOW_DELETE_OPERATION: process.env.DSH_MYSQL_ALLOW_DELETE === 'true' ? 'true' : 'false',
+            ALLOW_DDL_OPERATION: [
+              'DSH_MYSQL_ALLOW_ALTER',
+              'DSH_MYSQL_ALLOW_TRUNCATE',
+              'DSH_MYSQL_ALLOW_DROP',
+            ].some(name => process.env[name] === 'true') ? 'true' : 'false',
+            // The server otherwise pins every session to READ ONLY and rolls
+            // back, so writes cannot succeed without this. Enable it only when
+            // a write is actually switched on.
+            MYSQL_DISABLE_READ_ONLY_TRANSACTIONS: [
+              'DSH_MYSQL_ALLOW_INSERT',
+              'DSH_MYSQL_ALLOW_UPDATE',
+              'DSH_MYSQL_ALLOW_DELETE',
+              'DSH_MYSQL_ALLOW_ALTER',
+              'DSH_MYSQL_ALLOW_TRUNCATE',
+              'DSH_MYSQL_ALLOW_DROP',
+            ].some(name => process.env[name] === 'true') ? 'true' : 'false',
+          })
+        # `false` keeps a missing npm registry or an unreachable database from
+        # taking the whole harness down: the client retries in the background
+        # and the rest of the profile boots normally. Set `true` only if this
+        # deployment must refuse to start without MySQL.
+        failOnStartupError: false

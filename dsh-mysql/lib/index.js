@@ -1,5 +1,5 @@
 import "@deepseek-ai/dsh-user-approval";
-//#region ../../../vendor/cosmokit/src/misc.ts
+//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/index.js
 /** Return true when a value is `null` or `undefined`. */
 function isNullable(value) {
 	return value === null || value === void 0;
@@ -23,8 +23,6 @@ function pick(source, keys, forced) {
 	for (const key of keys) if (forced || source[key] !== void 0) result[key] = source[key];
 	return result;
 }
-//#endregion
-//#region ../../../vendor/cosmokit/src/types.ts
 /** Test values using `instanceof` with a `toStringTag` fallback. */
 function is(type, value) {
 	if (arguments.length === 1) return (value) => is(type, value);
@@ -36,15 +34,16 @@ function isArrayBufferLike(value) {
 function isArrayBufferSource(value) {
 	return isArrayBufferLike(value) || ArrayBuffer.isView(value);
 }
-let Binary;
-(function(_Binary) {
-	_Binary.is = isArrayBufferLike;
-	_Binary.isSource = isArrayBufferSource;
+/** Binary source detection and base64/hex conversion helpers. */
+var Binary;
+(function(Binary) {
+	Binary.is = isArrayBufferLike;
+	Binary.isSource = isArrayBufferSource;
 	function fromSource(source) {
 		if (ArrayBuffer.isView(source)) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
 		else return source;
 	}
-	_Binary.fromSource = fromSource;
+	Binary.fromSource = fromSource;
 	function toBase64(source) {
 		source = fromSource(source);
 		if (typeof Buffer !== "undefined") return Buffer.from(source).toString("base64");
@@ -53,18 +52,18 @@ let Binary;
 		for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
 		return btoa(binary);
 	}
-	_Binary.toBase64 = toBase64;
+	Binary.toBase64 = toBase64;
 	function fromBase64(source) {
 		if (typeof Buffer !== "undefined") return fromSource(Buffer.from(source, "base64"));
 		return Uint8Array.from(atob(source), (c) => c.charCodeAt(0));
 	}
-	_Binary.fromBase64 = fromBase64;
+	Binary.fromBase64 = fromBase64;
 	function toHex(source) {
 		source = fromSource(source);
 		if (typeof Buffer !== "undefined") return Buffer.from(source).toString("hex");
 		return Array.from(new Uint8Array(source), (byte) => byte.toString(16).padStart(2, "0")).join("");
 	}
-	_Binary.toHex = toHex;
+	Binary.toHex = toHex;
 	function fromHex(source) {
 		if (typeof Buffer !== "undefined") return fromSource(Buffer.from(source, "hex"));
 		const hex = source.length % 2 === 0 ? source : source.slice(0, source.length - 1);
@@ -72,7 +71,7 @@ let Binary;
 		for (let i = 0; i < hex.length; i += 2) buffer.push(parseInt(`${hex[i]}${hex[i + 1]}`, 16));
 		return Uint8Array.from(buffer).buffer;
 	}
-	_Binary.fromHex = fromHex;
+	Binary.fromHex = fromHex;
 })(Binary || (Binary = {}));
 Binary.fromBase64;
 Binary.toBase64;
@@ -125,37 +124,36 @@ function deepEqual(a, b, strict) {
 		...b
 	}).every((key) => deepEqual(a[key], b[key], strict));
 }
-//#endregion
-//#region ../../../vendor/cosmokit/src/time.ts
-let Time;
-(function(_Time) {
-	_Time.millisecond = 1;
-	const second = _Time.second = 1e3;
-	const minute = _Time.minute = second * 60;
-	const hour = _Time.hour = minute * 60;
-	const day = _Time.day = hour * 24;
-	const week = _Time.week = day * 7;
+/** Time constants plus parsing and formatting helpers. */
+var Time;
+(function(Time) {
+	Time.millisecond = 1;
+	Time.second = 1e3;
+	Time.minute = Time.second * 60;
+	Time.hour = Time.minute * 60;
+	Time.day = Time.hour * 24;
+	Time.week = Time.day * 7;
 	let timezoneOffset = (/* @__PURE__ */ new Date()).getTimezoneOffset();
 	function setTimezoneOffset(offset) {
 		timezoneOffset = offset;
 	}
-	_Time.setTimezoneOffset = setTimezoneOffset;
+	Time.setTimezoneOffset = setTimezoneOffset;
 	function getTimezoneOffset() {
 		return timezoneOffset;
 	}
-	_Time.getTimezoneOffset = getTimezoneOffset;
+	Time.getTimezoneOffset = getTimezoneOffset;
 	function getDateNumber(date = /* @__PURE__ */ new Date(), offset) {
 		if (typeof date === "number") date = new Date(date);
 		if (offset === void 0) offset = timezoneOffset;
-		return Math.floor((date.valueOf() / minute - offset) / 1440);
+		return Math.floor((date.valueOf() / Time.minute - offset) / 1440);
 	}
-	_Time.getDateNumber = getDateNumber;
+	Time.getDateNumber = getDateNumber;
 	function fromDateNumber(value, offset) {
-		const date = new Date(value * day);
+		const date = new Date(value * Time.day);
 		if (offset === void 0) offset = timezoneOffset;
-		return new Date(+date + offset * minute);
+		return new Date(+date + offset * Time.minute);
 	}
-	_Time.fromDateNumber = fromDateNumber;
+	Time.fromDateNumber = fromDateNumber;
 	const numeric = /\d+(?:\.\d+)?/.source;
 	const timeRegExp = new RegExp(`^${[
 		"w(?:eek(?:s)?)?",
@@ -167,9 +165,9 @@ let Time;
 	function parseTime(source) {
 		const capture = timeRegExp.exec(source);
 		if (!capture) return 0;
-		return (parseFloat(capture[1]) * week || 0) + (parseFloat(capture[2]) * day || 0) + (parseFloat(capture[3]) * hour || 0) + (parseFloat(capture[4]) * minute || 0) + (parseFloat(capture[5]) * second || 0);
+		return (parseFloat(capture[1]) * Time.week || 0) + (parseFloat(capture[2]) * Time.day || 0) + (parseFloat(capture[3]) * Time.hour || 0) + (parseFloat(capture[4]) * Time.minute || 0) + (parseFloat(capture[5]) * Time.second || 0);
 	}
-	_Time.parseTime = parseTime;
+	Time.parseTime = parseTime;
 	function parseDate(date) {
 		const parsed = parseTime(date);
 		if (parsed) date = Date.now() + parsed;
@@ -177,27 +175,27 @@ let Time;
 		else if (/^\d{1,2}-\d{1,2}-\d{1,2}(:\d{1,2}){1,2}$/.test(date)) date = `${(/* @__PURE__ */ new Date()).getFullYear()}-${date}`;
 		return date ? new Date(date) : /* @__PURE__ */ new Date();
 	}
-	_Time.parseDate = parseDate;
+	Time.parseDate = parseDate;
 	function format(ms) {
 		const abs = Math.abs(ms);
-		if (abs >= day - hour / 2) return Math.round(ms / day) + "d";
-		else if (abs >= hour - minute / 2) return Math.round(ms / hour) + "h";
-		else if (abs >= minute - second / 2) return Math.round(ms / minute) + "m";
-		else if (abs >= second) return Math.round(ms / second) + "s";
+		if (abs >= Time.day - Time.hour / 2) return Math.round(ms / Time.day) + "d";
+		else if (abs >= Time.hour - Time.minute / 2) return Math.round(ms / Time.hour) + "h";
+		else if (abs >= Time.minute - Time.second / 2) return Math.round(ms / Time.minute) + "m";
+		else if (abs >= Time.second) return Math.round(ms / Time.second) + "s";
 		return ms + "ms";
 	}
-	_Time.format = format;
+	Time.format = format;
 	function toDigits(source, length = 2) {
 		return source.toString().padStart(length, "0");
 	}
-	_Time.toDigits = toDigits;
+	Time.toDigits = toDigits;
 	function template(template, time = /* @__PURE__ */ new Date()) {
 		return template.replace("yyyy", time.getFullYear().toString()).replace("yy", time.getFullYear().toString().slice(2)).replace("MM", toDigits(time.getMonth() + 1)).replace("dd", toDigits(time.getDate())).replace("hh", toDigits(time.getHours())).replace("mm", toDigits(time.getMinutes())).replace("ss", toDigits(time.getSeconds())).replace("SSS", toDigits(time.getMilliseconds(), 3));
 	}
-	_Time.template = template;
+	Time.template = template;
 })(Time || (Time = {}));
 //#endregion
-//#region ../../../vendor/schemastery/src/index.ts
+//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.2/node_modules/@deepseek-ai/schemastery/lib/index.mjs
 const kSchema = Symbol.for("schemastery");
 const kValidationError = Symbol.for("ValidationError");
 globalThis.__schemastery_index__ ??= 0;
@@ -796,6 +794,7 @@ const name = "dsh-mysql";
 const inject = ["tools", "approval"];
 const Config = Schema.object({
 	enabled: Schema.boolean().default(true),
+	serverName: Schema.string().default("mysql"),
 	allowInsert: Schema.boolean().default(false),
 	allowUpdate: Schema.boolean().default(false),
 	allowDelete: Schema.boolean().default(false),
@@ -804,31 +803,234 @@ const Config = Schema.object({
 	allowDrop: Schema.boolean().default(false),
 	maxAffectedRows: Schema.number().min(1).default(100)
 });
-const WRITE_TOOLS = new Map([
+/** Leading keywords that are unambiguously reads and never need approval. */
+const READ_KEYWORDS = new Set([
+	"select",
+	"show",
+	"describe",
+	"desc",
+	"explain",
+	"use",
+	"values",
+	"help"
+]);
+/** Leading keywords mapped to the switch that permits them. */
+const WRITE_KEYWORDS = new Map([
 	["insert", "allowInsert"],
+	["replace", "allowInsert"],
+	["load", "allowInsert"],
 	["update", "allowUpdate"],
 	["delete", "allowDelete"],
 	["alter", "allowAlter"],
+	["create", "allowAlter"],
+	["rename", "allowAlter"],
 	["truncate", "allowTruncate"],
 	["drop", "allowDrop"]
 ]);
-function operation(name) {
-	if (!name.startsWith("mcp__mysql__")) return void 0;
-	const suffix = name.slice(12).toLowerCase();
-	for (const [word, setting] of WRITE_TOOLS) if (suffix.includes(word)) return setting;
+/**
+* Remaining statement-leading keywords that write or change state but have no
+* dedicated switch. They are denied outright, so an operator cannot turn them
+* on by enabling one of the six named toggles.
+*/
+const UNSUPPORTED_WRITE_KEYWORDS = new Set([
+	"call",
+	"do",
+	"execute",
+	"grant",
+	"revoke",
+	"kill",
+	"lock",
+	"unlock",
+	"flush",
+	"reset",
+	"purge",
+	"install",
+	"uninstall",
+	"shutdown",
+	"set",
+	"prepare",
+	"deallocate",
+	"savepoint",
+	"xa",
+	"analyze",
+	"optimize",
+	"repair",
+	"check",
+	"checksum",
+	"handler",
+	"import"
+]);
+/**
+* Split a SQL script into statements on top-level semicolons.
+*
+* String literals, quoted identifiers, and comments are copied through
+* untouched so a `;` inside `'a;b'` or inside a comment never splits a
+* statement — mis-splitting would let a write hide behind a read's keyword.
+* @param sql - the script to split.
+* @returns each statement with surrounding whitespace and comments trimmed.
+*/
+function splitStatements(sql) {
+	const statements = [];
+	let current = "";
+	let index = 0;
+	while (index < sql.length) {
+		const char = sql[index];
+		const next = sql[index + 1];
+		if (char === "-" && next === "-") {
+			const end = sql.indexOf("\n", index);
+			index = end === -1 ? sql.length : end + 1;
+			current += " ";
+			continue;
+		}
+		if (char === "#") {
+			const end = sql.indexOf("\n", index);
+			index = end === -1 ? sql.length : end + 1;
+			current += " ";
+			continue;
+		}
+		if (char === "/" && next === "*") {
+			const end = sql.indexOf("*/", index + 2);
+			index = end === -1 ? sql.length : end + 2;
+			current += " ";
+			continue;
+		}
+		if (char === "'" || char === "\"" || char === "`") {
+			const quote = char;
+			current += char;
+			index += 1;
+			while (index < sql.length) {
+				const inner = sql[index];
+				current += inner;
+				index += 1;
+				if (inner === "\\" && quote !== "`") {
+					if (index < sql.length) current += sql[index];
+					index += 1;
+					continue;
+				}
+				if (inner !== quote) continue;
+				if (sql[index] === quote) {
+					current += sql[index];
+					index += 1;
+					continue;
+				}
+				break;
+			}
+			continue;
+		}
+		if (char === ";") {
+			statements.push(current);
+			current = "";
+			index += 1;
+			continue;
+		}
+		current += char;
+		index += 1;
+	}
+	statements.push(current);
+	return statements.map((statement) => statement.trim()).filter((statement) => statement !== "");
 }
+/** The first bare keyword of a stripped statement, lowercased. */
+function leadingKeyword(statement) {
+	const match = /^[A-Za-z_]+/.exec(statement);
+	return match === null ? "" : match[0].toLowerCase();
+}
+/** Whether any top-level word of a statement is one of `keywords`. */
+function containsKeyword(statement, keywords) {
+	const words = statement.match(/[A-Za-z_]+/g);
+	if (words === null) return false;
+	return words.some((word) => keywords.has(word.toLowerCase()));
+}
+/**
+* Classify one submitted SQL script.
+*
+* A script may hold several `;`-separated statements, so the verdict is the
+* strictest one any statement produces: one write makes the whole script a
+* write, and one unsupported keyword denies the whole script.
+* @param sql - the script from the tool call's `sql` argument.
+* @returns the approval requirement the script carries.
+*/
+function classifySql(sql) {
+	const statements = splitStatements(sql);
+	if (statements.length === 0) return { kind: "empty" };
+	let write;
+	for (const statement of statements) {
+		const keyword = leadingKeyword(statement);
+		if (keyword === "with") {
+			const nested = [...WRITE_KEYWORDS.keys()].find((candidate) => new RegExp(`\\b${candidate}\\b`, "i").test(statement));
+			if (nested !== void 0) {
+				write ??= WRITE_KEYWORDS.get(nested);
+				continue;
+			}
+			if (containsKeyword(statement, READ_KEYWORDS)) continue;
+			return {
+				kind: "unsupported",
+				keyword
+			};
+		}
+		if (READ_KEYWORDS.has(keyword)) continue;
+		const setting = WRITE_KEYWORDS.get(keyword);
+		if (setting !== void 0) {
+			write ??= setting;
+			continue;
+		}
+		if (UNSUPPORTED_WRITE_KEYWORDS.has(keyword)) return {
+			kind: "unsupported",
+			keyword
+		};
+		return {
+			kind: "unsupported",
+			keyword: keyword === "" ? "(unparsable)" : keyword
+		};
+	}
+	return write === void 0 ? { kind: "read" } : {
+		kind: "write",
+		setting: write
+	};
+}
+/** The `sql` argument of a call, when the call carries one. */
+function sqlArgument(exec) {
+	const args = exec.arguments;
+	if (typeof args !== "object" || args === null) return void 0;
+	const sql = args.sql;
+	return typeof sql === "string" ? sql : void 0;
+}
+/** A short, credential-free description of the pending call for the approval prompt. */
 function safeSummary(exec) {
-	const args = JSON.stringify(exec.arguments);
-	return `MySQL ${operation(exec.name)?.slice(5).toUpperCase() ?? "WRITE"} request via ${exec.name}: ${args.slice(0, 4e3)}`;
+	let rendered;
+	try {
+		rendered = JSON.stringify(exec.arguments) ?? String(exec.arguments);
+	} catch {
+		rendered = "(unserializable arguments)";
+	}
+	return `MySQL statement via ${exec.name}: ${rendered.slice(0, 4e3)}`;
 }
 function apply(ctx, config = {}) {
 	if (config.enabled === false) return;
+	const prefix = `mcp__${config.serverName ?? "mysql"}__`;
 	ctx.on("tools/pre-execute", async (exec, next) => {
-		const setting = operation(exec.name);
-		if (setting === void 0) return next();
-		if (config[setting] !== true) return {
+		if (!exec.name.startsWith(prefix)) return next();
+		const sql = sqlArgument(exec);
+		if (sql === void 0) return {
 			kind: "deny",
-			reason: "MYSQL_WRITE_AUTH_REQUIRED: this operation is disabled until explicitly enabled and approved."
+			reason: `MYSQL_SQL_UNREADABLE: ${exec.name} carried no string "sql" argument to classify.`
+		};
+		const verdict = classifySql(sql);
+		if (verdict.kind === "read") return next();
+		if (verdict.kind === "empty") return {
+			kind: "deny",
+			reason: "MYSQL_SQL_UNREADABLE: the \"sql\" argument held no statement."
+		};
+		if (verdict.kind === "unsupported") return {
+			kind: "deny",
+			reason: `MYSQL_WRITE_AUTH_REQUIRED: "${verdict.keyword}" statements are not permitted through this bridge; only SELECT/SHOW/DESCRIBE/EXPLAIN reads and the six explicitly enabled write kinds may run.`
+		};
+		if (config[verdict.setting] !== true) return {
+			kind: "deny",
+			reason: `MYSQL_WRITE_AUTH_REQUIRED: ${verdict.setting} is off, so this statement is disabled. Enable it in the profile configuration and set the matching environment variable.`
+		};
+		if (exec.agent === void 0) return {
+			kind: "deny",
+			reason: `MYSQL_WRITE_AUTH_REQUIRED: ${exec.name} has no agent to route an approval through.`
 		};
 		const outcome = await ctx.approval.request({
 			agent: exec.agent,
@@ -850,6 +1052,6 @@ var src_default = {
 	apply
 };
 //#endregion
-export { Config, apply, src_default as default, inject, name };
+export { Config, apply, classifySql, src_default as default, inject, name, splitStatements };
 
 //# sourceMappingURL=index.js.map
