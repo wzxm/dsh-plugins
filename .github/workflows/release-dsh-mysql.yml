@@ -45,6 +45,12 @@ jobs:
       - name: Test
         run: pnpm run test
 
+      # The browser half is only loadable if the manifest's dsh.client block, its
+      # "./client" export, and the emitted bundle all agree. Nothing else checks
+      # that triple, and a mismatch ships a card the page silently never mounts.
+      - name: Verify client bundle contract
+        run: pnpm run verify:bundle
+
       # A tag that disagrees with the manifest publishes a version nobody can
       # install by the name the release advertises.
       - name: Verify tag matches package version
