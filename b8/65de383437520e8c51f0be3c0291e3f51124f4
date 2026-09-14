@@ -1,0 +1,19 @@
+dsh-mysql/src/client/MysqlCard.module.css
+  s_8b7a5464c5e675::t_bf7131aef44379 1-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b865de383437520e8c51f0be3c0291e3f51124f4",
+  "prompts": {},
+  "sessions": {
+    "s_8b7a5464c5e675": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "097685e0-d6f4-44de-a482-4cbbc9aca5f1",
+        "model": "unknown"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
