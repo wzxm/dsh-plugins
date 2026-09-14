@@ -1,0 +1,118 @@
+dsh-mysql/src/client/slot-contract.ts
+  s_8aba956c2439a1::t_438f19f17ae78f 15-18
+dsh-mysql/lib/index.js
+  s_07351b4b375cad::t_ea0bb8ae75be06 19,26,32,38,44,50
+dsh-mysql/README.zh.md
+  s_07351b4b375cad::t_345d05750c11b5 28
+  s_07351b4b375cad::t_6d470b2f7dd001 41-44
+dsh-mysql/src/write-switches.ts
+  s_07351b4b375cad::t_87d1eef9ad9d99 26,33,39,45,51,57
+dsh-mysql/src/client/MysqlCard.tsx
+  s_07351b4b375cad::t_7670df0398d38e 110-111,116,119,181
+  s_07351b4b375cad::t_2f667fe8abf31c 109
+  s_07351b4b375cad::t_523204c0b443fc 112-115
+  s_07351b4b375cad::t_66ce49a4db2f1f 117-118
+  s_07351b4b375cad::t_d0f0066e284b4a 120-122
+  s_07351b4b375cad::t_c4de446ca36653 182-183
+  s_8aba956c2439a1::t_0248c650e3da2a 2-3,5-8,13-15,21,35,43-51,53,56-102,105-107,123-179,185
+dsh-mysql/tsconfig.json
+  s_8aba956c2439a1::t_cc1610ac58af4a 14-20,24-25
+  s_8aba956c2439a1::t_60261d52c2dd70 21-23
+dsh-mysql/src/client/locales.ts
+  s_07351b4b375cad::t_87d1eef9ad9d99 16-17,38-39
+  s_07351b4b375cad::t_7670df0398d38e 23-24,45-46
+  s_07351b4b375cad::t_14cddaf62211ff 25-27
+  s_07351b4b375cad::t_3fc39b14963a5d 47-49
+  s_8aba956c2439a1::t_50203c7f1f983f 28-30,50-52
+dsh-mysql/src/client/card-controller.ts
+  s_8aba956c2439a1::t_d9b4f641b697b9 8
+dsh-mysql/src/client/card-state.ts
+  s_07351b4b375cad::t_87d1eef9ad9d99 35-36,82
+dsh-mysql/src/client/MysqlCard.module.css
+  s_07351b4b375cad::t_dfeba19565b967 147,168,187-192,198,203-260
+  s_07351b4b375cad::t_87d1eef9ad9d99 11,90,96-97,145-146,148-167,261
+  s_07351b4b375cad::t_7670df0398d38e 15-16,18,20,23-25,27,30-31,39,62-71,83-84,87-89
+  s_07351b4b375cad::t_a8b4e00d7870fe 9-10
+  s_07351b4b375cad::t_7a53c2b81554ef 12-14
+  s_07351b4b375cad::t_871ff449c86937 17
+  s_07351b4b375cad::t_364e36c3808323 19
+  s_07351b4b375cad::t_10430020e5a0b1 21-22
+  s_07351b4b375cad::t_87dde806df63c7 29
+  s_07351b4b375cad::t_d41bfaa90ebe93 32-34
+  s_07351b4b375cad::t_3d0529912f0585 38
+  s_07351b4b375cad::t_89408b847c5452 40
+  s_07351b4b375cad::t_8c269d96586403 59-61
+  s_07351b4b375cad::t_6ebeb9ad22160d 72-74,80-82
+  s_07351b4b375cad::t_5d0ff44da8fbea 85-86
+  s_07351b4b375cad::t_cad907228eb141 91-95
+  s_07351b4b375cad::t_afe00259fbae71 98
+  s_8aba956c2439a1::t_11a27f5aa2f4f3 1-2,35,75-79
+dsh-mysql/lib/index.d.ts
+  s_07351b4b375cad::t_ea0bb8ae75be06 14,20,25,30,35,40
+dsh-mysql/README.md
+  s_07351b4b375cad::t_345d05750c11b5 28
+  s_07351b4b375cad::t_6d470b2f7dd001 41-44
+dsh-mysql/src/client/index.ts
+  s_8aba956c2439a1::t_6d08023bb9947d 17-18
+  s_8aba956c2439a1::t_649f740904a9c7 28-32
+  s_8aba956c2439a1::t_4689a2bdebc96b 19
+  s_8aba956c2439a1::t_238a972226c8ae 33
+dsh-mysql/tests/card-render.spec.tsx
+  s_07351b4b375cad::t_094a08fd2d104d 14,88
+  s_07351b4b375cad::t_c71d010ae91a6c 61,115,120-121
+  s_07351b4b375cad::t_5c0e3c3fb9229c 74,76,80,85-87,89-92,154,192
+  s_07351b4b375cad::t_09b74d3736e282 107,112
+  s_07351b4b375cad::t_90b32cacd47c02 60
+  s_07351b4b375cad::t_6f2163d8fe1e60 15
+  s_07351b4b375cad::t_99b2b87bc47458 73
+  s_07351b4b375cad::t_d3648f2136f93a 75
+  s_07351b4b375cad::t_309d2f0dd52445 77-79
+  s_07351b4b375cad::t_84fe4087e17134 81-84
+  s_07351b4b375cad::t_af562a163d3a82 93
+  s_07351b4b375cad::t_e285118b9346bb 108-111
+  s_07351b4b375cad::t_b1e90d8ef7fd97 116-119
+  s_07351b4b375cad::t_ce52bc2a6c86e8 151-153
+  s_07351b4b375cad::t_9895cd380cd516 155-157
+  s_07351b4b375cad::t_9382d1ab5dbff3 189-191
+  s_07351b4b375cad::t_92303ee7c65d47 193-195
+  s_8aba956c2439a1::t_0c703f6fddecd6 2,4-6,19,21,34,41,44,53,67-71,95,101,124-133,138,143-150,158-161,164-172,175-188,196-207,235,249,270
+dsh-mysql/lib/client.js
+  s_8aba956c2439a1::t_754691ae7ba8f6 1
+dsh-mysql/lib/index.d.ts.map
+  s_8aba956c2439a1::t_3f277d39a4a6ec 1
+dsh-mysql/lib/index.js.map
+  s_8aba956c2439a1::t_ce8a4824e3497f 1
+dsh-mysql/package.json
+  s_8aba956c2439a1::t_175c5173783bed 77
+dsh-mysql/pnpm-lock.yaml
+  s_8aba956c2439a1::t_1b58e677a2346d 54-56,102-104,779-784,1099-1101,1151-1153,1343-1346,1510-1513,1623-1626,1735-1738,2021-2022,2502-2511,2763-2764,2797-2798,3030-3031,3163-3164,3256-3260,3427-3430
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2ae54d12ae797fc0d12c1ae81e6b15af1cd2921b",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  },
+  "sessions": {
+    "s_07351b4b375cad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09ef0-e3a1-78f1-9b99-e82508ad6559",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    },
+    "s_8aba956c2439a1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a68ef580-a4a0-40dd-95be-eaa484480b5a",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
