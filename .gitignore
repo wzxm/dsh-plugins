@@ -11,6 +11,8 @@ node_modules/
 # after the package, so both spellings have to be ignored.
 */dsh-mysql.tgz
 wzxm-dsh-mysql-*.tgz
+*/dsh-im.tgz
+wzxm-dsh-im-*.tgz
 
 
 .npmrc

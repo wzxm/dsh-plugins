@@ -1,0 +1,8 @@
+- insert:
+    - id: dsh-im
+      name: '@wzxm/dsh-im'
+      config:
+        callbackPath: /webhooks/feishu
+        oauthCallbackPath: /oauth/feishu/callback
+        publicBaseUrl: !!js process.env.DSH_IM_PUBLIC_BASE_URL ?? ''
+        maxBodyBytes: 1048576

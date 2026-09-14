@@ -1,0 +1,83 @@
+name: Release dsh-im
+
+on:
+  push:
+    tags:
+      - 'dsh-im-v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dsh-im
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dsh-im/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The committed `lib/` is what gets packed, so a stale or hand-edited
+      # artifact would ship silently. Rebuilding and diffing proves the release
+      # archive actually contains the reviewed source.
+      - name: Verify committed build matches source
+        run: |
+          pnpm run build
+          git diff --exit-code -- lib
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm run test
+
+      # No "verify client bundle" step: this package is host-only. It declares no
+      # `dsh.client` block and emits no browser bundle, so there is no
+      # manifest/export/bundle triple to check.
+
+      # A tag that disagrees with the manifest publishes a version nobody can
+      # install by the name the release advertises.
+      - name: Verify tag matches package version
+        run: |
+          expected="${GITHUB_REF_NAME#dsh-im-v}"
+          actual="$(node -p "require('./package.json').version")"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::tag dsh-im-v$expected does not match package.json version $actual"
+            exit 1
+          fi
+
+      # The committed artifact is already proven to match source, so pack it
+      # as-is: a second build here could reintroduce drift.
+      - name: Create release archive
+        run: |
+          npm pack --ignore-scripts
+          mv wzxm-dsh-im-*.tgz dsh-im.tgz
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dsh-im/dsh-im.tgz
+
+      # setup-node writes .npmrc at GITHUB_WORKSPACE, which npm would not
+      # see from working-directory dsh-im; write the user npmrc instead.
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo '@wzxm:registry=https://npm.pkg.github.com' >> "$HOME/.npmrc"
+          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' >> "$HOME/.npmrc"
+          npm publish --ignore-scripts
