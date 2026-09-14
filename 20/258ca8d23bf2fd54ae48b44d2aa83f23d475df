@@ -1,0 +1,19 @@
+README.md
+  s_8b7a5464c5e675::t_928ff9657f65aa 3,5-7,9,15,17-19,22,28,30,32,35-37,40,43-44,47,49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "20258ca8d23bf2fd54ae48b44d2aa83f23d475df",
+  "prompts": {},
+  "sessions": {
+    "s_8b7a5464c5e675": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "097685e0-d6f4-44de-a482-4cbbc9aca5f1",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
