@@ -1,8 +1,31 @@
+# Feishu/Lark IM adapter for DeepSeek Harness.
+#
+# Two exact routes on the web server: the event callback and the OAuth redirect.
+# Both are authenticated by their own means — the callback by its Feishu
+# signature, not by the browser session that guards `/api` — so neither sits
+# behind the connection trust fence by design.
+#
+# YAML NOTE — `!!js` is a scalar tag. Keep each expression on one value; do not
+# wrap a whole mapping in `!!js |`.
 - insert:
     - id: dsh-im
       name: '@wzxm/dsh-im'
       config:
         callbackPath: /webhooks/feishu
         oauthCallbackPath: /oauth/feishu/callback
-        publicBaseUrl: !!js process.env.DSH_IM_PUBLIC_BASE_URL ?? ''
+        # Credential references, not secret values: this file stays credential-free
+        # and safe to commit. Resolve them through the harness credentials service.
+        #
+        # Setting encryptKeyRef turns on BOTH signature verification and payload
+        # decryption, because Feishu signs and encrypts on the same switch. Leaving
+        # it empty accepts unsigned plaintext callbacks, which is only appropriate
+        # for a trusted local tunnel during initial setup.
+        encryptKeyRef: !!js process.env.DSH_IM_ENCRYPT_KEY_REF ?? ''
+        verificationTokenRef: !!js process.env.DSH_IM_VERIFICATION_TOKEN_REF ?? ''
+        appIdRef: !!js process.env.DSH_IM_APP_ID_REF ?? ''
+        appSecretRef: !!js process.env.DSH_IM_APP_SECRET_REF ?? ''
+        # The bot's own open_id. It cannot be discovered from a callback (Feishu
+        # reports the mention's author, never the reader), and without it every
+        # group message is discarded. p2p works without it.
+        botOpenId: !!js process.env.DSH_IM_BOT_OPEN_ID ?? ''
         maxBodyBytes: 1048576

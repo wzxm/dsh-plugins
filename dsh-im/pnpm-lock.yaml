@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.2
+        version: 3.18.2
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.2
@@ -20,9 +24,6 @@ importers:
       '@deepseek-ai/dsh-webhook':
         specifier: ^0.1.5-alpha.1
         version: 0.1.5-rc.2(aa5928ae8b392b83f7f1c08733a9c4f6)
-      '@deepseek-ai/schemastery':
-        specifier: ^3.18.2
-        version: 3.18.2
       '@types/node':
         specifier: ^22.20.2
         version: 22.20.2

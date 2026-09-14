@@ -1,47 +1,248 @@
+/**
+ * dsh-im — Feishu/Lark IM adapter for DeepSeek Harness.
+ *
+ * The plugin owns two exact routes on the injected WebServer: the event callback
+ * and the OAuth redirect. Both are the application's own endpoints — a webhook
+ * is authenticated by its signature, not by the browser session that guards
+ * `/api`, so neither sits behind the connection trust fence by design.
+ *
+ * ## Why `webhookRuntime` is optional
+ *
+ * The harness webhook runtime is the natural destination for an inbound message,
+ * but **no shipped bundle composes it**. Declaring it in `inject` would park this
+ * plugin in PENDING forever: `apply` would never run, so the routes below would
+ * never register and the adapter would be silently absent. It is therefore read
+ * with `ctx.get` at dispatch time, and a profile without it logs a warning
+ * instead of going dark.
+ *
+ * The same reasoning applies to `credentials`: secrets are resolved per request
+ * and a profile without a credential provider falls back to the composition
+ * entry itself.
+ *
+ * @module @wzxm/dsh-im
+ */
+
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-export * from './quick-onboarding.ts'
+import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
+import { WebhookDeliveryId, WebhookSourceId } from '@deepseek-ai/dsh-webhook'
+import z from '@deepseek-ai/schemastery'
+import { createFeishuHandler } from './handler.ts'
+import type { NormalizedMessage } from './event.ts'
+import type {} from './webhook-types.ts'
+
+export * from './event.ts'
 export * from './feishu.ts'
 export * from './feishu-api.ts'
 export * from './signature.ts'
+export * from './decrypt.ts'
 export * from './bot-store.ts'
+export * from './quick-onboarding.ts'
+export type * from './webhook-types.ts'
+
 export const name = 'dsh-im'
+
+/**
+ * Only the web server is a hard dependency: it is the socket this plugin
+ * registers on, and there is nothing to do without it.
+ */
 export const inject = ['webServer']
+
 export interface Config {
+  /** Exact absolute path for Feishu event callbacks. */
   callbackPath: string
+  /** Exact absolute path for the OAuth redirect. */
   oauthCallbackPath: string
-  publicBaseUrl: string
-  maxBodyBytes: number
+  /**
+   * Credential reference holding the Feishu Encrypt Key. When present, inbound
+   * callbacks are signature-verified and decrypted. Empty disables both, which
+   * is only appropriate for a trusted local tunnel during setup.
+   */
+  encryptKeyRef?: string
+  /** Credential reference holding the Verification Token. */
+  verificationTokenRef?: string
+  /** Credential reference holding the app_id, used for token exchanges. */
+  appIdRef?: string
+  /** Credential reference holding the app_secret. */
+  appSecretRef?: string
+  /**
+   * The bot's own `open_id`, matched against group-message mentions.
+   *
+   * This cannot be discovered from an inbound callback: Feishu identifies the
+   * *author* of a mention, never the reader. Without it every group message is
+   * discarded (a group message that does not mention the bot is not for us), so
+   * it is required for group use even though p2p works without it.
+   */
+  botOpenId?: string
+  /** Raw callback body ceiling in bytes. */
+  maxBodyBytes?: number
 }
+
+/** Validate route and ref facts a schema cannot express. */
+function assertConfig (config: Config): void {
+  for (const [field, value] of [
+    ['callbackPath', config.callbackPath],
+    ['oauthCallbackPath', config.oauthCallbackPath],
+  ] as const) {
+    if (!value.startsWith('/') || value === '/' || value.endsWith('/')
+      || value.includes('?') || value.includes('#')) {
+      throw new Error(
+        `dsh-im ${field} must be an absolute non-root pathname without a trailing slash, query, or fragment`,
+      )
+    }
+  }
+  if (config.callbackPath === config.oauthCallbackPath) {
+    throw new Error('dsh-im callbackPath and oauthCallbackPath must differ')
+  }
+}
+
+/**
+ * The declared configuration.
+ *
+ * Exported as a Schemastery schema so the loader validates the profile's config
+ * before `apply` runs. Without it Cordis passes the raw object through
+ * unvalidated (`vendor/cordis/src/fiber.ts` only applies a schema when the
+ * plugin exports one).
+ */
+export const Config: z<Required<Config>> = z.object({
+  callbackPath: z.string().default('/webhooks/feishu'),
+  oauthCallbackPath: z.string().default('/oauth/feishu/callback'),
+  encryptKeyRef: z.string().default(''),
+  verificationTokenRef: z.string().default(''),
+  appIdRef: z.string().default(''),
+  appSecretRef: z.string().default(''),
+  botOpenId: z.string().default(''),
+  maxBodyBytes: z.natural().default(1_048_576),
+})
+
+/**
+ * Resolve one optional credential reference.
+ * @param ctx - plugin context supplying the credential provider, if any.
+ * @param ref - the reference name; empty means "not configured".
+ * @returns the secret value, or `undefined`.
+ */
+async function resolveSecret (
+  ctx: Context,
+  ref: string
+): Promise<string | undefined> {
+  if (ref === '') return undefined
+  // A name outside the credential grammar has no reference to miss, so it reads
+  // as "not configured" instead of throwing from deep inside the provider. The
+  // grammar is a POSIX shell identifier (e.g. `FEISHU_ENCRYPT_KEY`), which a
+  // hyphenated name like `feishu-encrypt-key` would violate.
+  if (!isCredentialRefName(ref)) {
+    ctx.logger.warn(
+      `dsh-im: credential ref "${ref}" is not a valid name; use a shell-style `
+      + 'identifier such as FEISHU_ENCRYPT_KEY',
+    )
+    return undefined
+  }
+  const credentials = ctx.get('credentials')
+  if (credentials === undefined) {
+    ctx.logger.warn(
+      `dsh-im: "${ref}" is configured but no credential provider is mounted`,
+    )
+    return undefined
+  }
+  const record = await credentials.resolve(credentialRef(ref))
+  const value = record?.value
+  if (value === undefined || value === '') {
+    ctx.logger.warn(`dsh-im: credential "${ref}" is not configured`)
+    return undefined
+  }
+  return value
+}
+
 export function apply (ctx: Context, config: Config): void {
-  if (
-    !config.callbackPath.startsWith('/') ||
-    !config.oauthCallbackPath.startsWith('/')
-  )
-    throw new Error('dsh-im paths must be absolute')
+  assertConfig(config)
+  const resolved = config as Required<Config>
+
+  /**
+   * Secrets are read once at activation. Re-resolving per request would make
+   * every callback depend on the credential provider staying responsive, and a
+   * rotated key can be picked up by reloading the plugin.
+   */
+  let encryptKey: string | undefined
+  let verificationToken: string | undefined
+  /** Fixed at activation; a changed open_id needs a plugin reload anyway. */
+  const botOpenId = resolved.botOpenId
+  /** Set once the missing-runtime warning has been logged. */
+  let warnedNoRuntime = false
+
+  const onMessage = async (message: NormalizedMessage): Promise<void> => {
+    const runtime = ctx.get('webhookRuntime')
+    if (runtime === undefined) {
+      if (!warnedNoRuntime) {
+        warnedNoRuntime = true
+        ctx.logger.warn(
+          'dsh-im: no webhook runtime is mounted, so inbound Feishu messages are '
+          + 'acknowledged but never turned into Sessions; compose @deepseek-ai/dsh-webhook',
+        )
+      }
+      return
+    }
+    // Only scalars cross into the delivery: the runtime snapshots it as JSON, and
+    // a live object would either throw or leak Host internals into rules.
+    runtime.dispatch({
+      kind: 'im',
+      source: WebhookSourceId(name),
+      deliveryId: WebhookDeliveryId(message.eventId),
+      event: {
+        provider: 'feishu',
+        chatType: message.chatType,
+        chatId: message.chatId,
+        senderOpenId: message.senderOpenId,
+        text: message.text,
+        ...(message.threadId === undefined ? {} : { threadId: message.threadId }),
+        ...(message.parentId === undefined ? {} : { parentId: message.parentId }),
+      },
+      receivedAt: Date.now(),
+    })
+  }
+
+  const handler = createFeishuHandler(ctx, {
+    get encryptKey () { return encryptKey },
+    get verificationToken () { return verificationToken },
+    get botOpenId () { return botOpenId },
+    maxBodyBytes: resolved.maxBodyBytes,
+    onMessage,
+  })
+
   ctx.effect(
-    () =>
-      ctx.webServer.register({
-        kind: 'exact',
-        path: config.callbackPath,
-        handler: (_req, res) => {
-          res.statusCode = 501
-          res.end('Feishu adapter pending configuration')
-        }
-      }),
-    `dsh-im: ${config.callbackPath}`
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: resolved.callbackPath,
+      handler,
+    }),
+    `dsh-im: ${resolved.callbackPath}`,
   )
+
   ctx.effect(
-    () =>
-      ctx.webServer.register({
-        kind: 'exact',
-        path: config.oauthCallbackPath,
-        handler: (_req, res) => {
-          res.statusCode = 501
-          res.end('OAuth callback pending configuration')
-        }
-      }),
-    `dsh-im: ${config.oauthCallbackPath}`
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: resolved.oauthCallbackPath,
+      handler: (_req, res) => {
+        // The OAuth redirect is answered 501 until the code exchange is wired to
+        // a bot store; failing loudly beats accepting a code nothing consumes.
+        res.statusCode = 501
+        res.setHeader('content-type', 'text/plain; charset=utf-8')
+        res.end('OAuth callback is not wired to a bot store yet')
+      },
+    }),
+    `dsh-im: ${resolved.oauthCallbackPath}`,
   )
+
+  // Secrets resolve asynchronously after the routes exist, so a slow credential
+  // provider cannot delay registration. Requests arriving first are answered
+  // 503/401 by the handler, which is the correct fail-closed behaviour.
+  void (async () => {
+    try {
+      encryptKey = await resolveSecret(ctx, resolved.encryptKeyRef)
+      verificationToken = await resolveSecret(ctx, resolved.verificationTokenRef)
+    } catch (error: unknown) {
+      ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+    }
+  })()
 }
-export default { name, inject, apply }
+
+export default { name, inject, Config, apply }
