@@ -1,0 +1,14 @@
+.gitignore
+  h_1811824342b47a 14-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3837b588d8bd4387edfa63b3c0794fa038484cb6",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
