@@ -32,13 +32,20 @@ import z from '@deepseek-ai/schemastery'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-approval'
+// Type-only: pulls the `ctx.settings` Context merge and the settings service type.
+import type {} from '@deepseek-ai/dsh-settings'
+import {
+  readWriteSwitches, WRITE_SWITCHES_ALL_OFF, WRITE_SWITCH_NAMESPACE,
+  type WriteSwitchField, type WriteSwitches,
+} from './write-switches.ts'
 
 export const name = 'dsh-mysql'
 
 /**
- * Only `tools` is required. `approval` is resolved with `ctx.get` at the point
- * of use: a hard dependency would keep `apply` from ever running in a profile
- * without an approval seam, and the write gate would not be installed at all.
+ * Only `tools` is required. `approval` and `settings` are both resolved with
+ * `ctx.get` at the point of use: a hard dependency would keep `apply` from ever
+ * running in a profile that composes neither, and the write gate would not be
+ * installed at all.
  */
 export const inject = ['tools']
 
@@ -49,6 +56,12 @@ export interface Config {
    */
   enabled?: boolean
   serverName?: string
+  /**
+   * Composition-layer defaults for the six write switches, used when a settings
+   * namespace is mounted and as the whole value when one is not. These are the
+   * `base` layer: a stored `dsh-mysql` settings section (written from the
+   * settings card) overrides them field by field.
+   */
   allowInsert?: boolean
   allowUpdate?: boolean
   allowDelete?: boolean
@@ -84,14 +97,25 @@ export const Config: z<Config> = z.object({
   allowMultiDbWrites: z.boolean().default(false),
 })
 
+/**
+ * The six write switches as a settings section.
+ *
+ * Deliberately narrower than {@link Config}: the settings card edits write
+ * permission, not the connection target or the multi-DB escape hatch. Those
+ * stay composition-only so that granting cross-schema writes remains a
+ * deliberate edit of the profile rather than a switch in a form.
+ */
+export const WriteSwitchesSchema: z<WriteSwitches> = z.object({
+  allowInsert: z.boolean().default(false),
+  allowUpdate: z.boolean().default(false),
+  allowDelete: z.boolean().default(false),
+  allowAlter: z.boolean().default(false),
+  allowTruncate: z.boolean().default(false),
+  allowDrop: z.boolean().default(false),
+})
+
 /** The `allow*` switches, keyed by the write they permit. */
-type WriteSetting =
-  | 'allowInsert'
-  | 'allowUpdate'
-  | 'allowDelete'
-  | 'allowAlter'
-  | 'allowTruncate'
-  | 'allowDrop'
+type WriteSetting = WriteSwitchField
 
 /** Leading keywords that are unambiguously reads and never need approval. */
 const READ_KEYWORDS = new Set(['select', 'show', 'describe', 'desc', 'use', 'values', 'help'])
@@ -515,6 +539,27 @@ export function apply(ctx: Context, config: Config = {}): void {
   /** Set once the no-approval warning has been logged, so it is not repeated per call. */
   let warnedNoApproval = false
 
+  // The authoritative write switches. Without a settings provider this stays the
+  // composition entry, so a profile that never mounts settings behaves exactly
+  // as before. `installSection` swaps in the resolved section while a provider
+  // is attached and swaps back if it detaches.
+  const entrySwitches: WriteSwitches = readWriteSwitches(config)
+  let switches: WriteSwitches = entrySwitches
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(
+      ctx,
+      WRITE_SWITCH_NAMESPACE,
+      WriteSwitchesSchema,
+      entrySwitches,
+      {
+        setSource: (current) => { switches = readWriteSwitches(current()) },
+        // The gate reads `switches` at each call, so nothing derived needs
+        // rebuilding when the document changes.
+        onChange: () => {},
+      },
+    )
+  })
+
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     if (!exec.name.startsWith(prefix)) return next()
 
@@ -558,11 +603,11 @@ export function apply(ctx: Context, config: Config = {}): void {
           + 'That capability has no enable switch here; use a direct database client instead.',
       }
     }
-    if (config[verdict.setting] !== true) {
+    if (switches[verdict.setting] !== true) {
       return {
         kind: 'deny',
         reason: `MYSQL_WRITE_AUTH_REQUIRED: ${verdict.setting} is off, so this statement is disabled. `
-          + 'Enable it in the profile configuration and set the matching environment variable.',
+          + 'Enable it in the profile configuration or in the MySQL settings card.',
       }
     }
     // No database pinned means the upstream server resolves the target from the

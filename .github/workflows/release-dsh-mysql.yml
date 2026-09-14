@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -66,3 +67,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dsh-mysql/dsh-mysql.tgz
+
+      # setup-node writes .npmrc at GITHUB_WORKSPACE, which npm would not
+      # see from working-directory dsh-mysql; write the user npmrc instead.
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo '@wzxm:registry=https://npm.pkg.github.com' >> "$HOME/.npmrc"
+          echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' >> "$HOME/.npmrc"
+          npm publish --ignore-scripts

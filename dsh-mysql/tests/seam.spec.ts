@@ -13,7 +13,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
-import { apply, type Config } from '../src/index.ts'
+import { apply, WriteSwitchesSchema, type Config } from '../src/index.ts'
+import { WRITE_SWITCH_NAMESPACE } from '../src/write-switches.ts'
 
 /** A recorded `tools/pre-execute` listener. */
 type Listener = (exec: ToolExecution, next: () => Promise<PreToolDecision>) => Promise<PreToolDecision>
@@ -22,15 +23,47 @@ type Listener = (exec: ToolExecution, next: () => Promise<PreToolDecision>) => P
 function harness(options: {
   approval?: { request: (req: unknown) => Promise<ApprovalOutcome> }
   config?: Config
+  /** Mount a fake settings provider; omitted means no `settings` service exists. */
+  settings?: {
+    /** The section the namespace resolves to, as `scope.get()` would return it. */
+    section: Record<string, unknown>
+    /** Observe the namespace and schema the seam registers. */
+    onInstall?: (ns: string, schema: unknown) => void
+  }
 } = {}) {
   let listener: Listener | undefined
   const warn = vi.fn()
+  // The fake provider records the registration and reports the configured
+  // section as the resolved value, which is what `setSource` reads back.
+  const settingsService = {
+    installSection: (
+      _owner: unknown,
+      ns: string,
+      schema: unknown,
+      _entry: unknown,
+      hooks: { setSource: (current: () => unknown) => void },
+    ) => {
+      options.settings?.onInstall?.(ns, schema)
+      hooks.setSource(() => options.settings?.section)
+    },
+  }
   const ctx = {
     on: (name: string, fn: Listener) => {
       if (name === 'tools/pre-execute') listener = fn
       return () => {}
     },
-    get: (name: string) => (name === 'approval' ? options.approval : undefined),
+    get: (name: string) => {
+      if (name === 'approval') return options.approval
+      if (name === 'settings' && options.settings !== undefined) return settingsService
+      return undefined
+    },
+    // `installSection` is reached through `ctx.inject(['settings'], cb)`. Cordis
+    // runs that callback once the service is present; the fake runs it inline
+    // when one is configured, and never when it is not.
+    inject: (_names: string[], cb: (scoped: unknown) => void) => {
+      if (options.settings !== undefined) cb({ settings: settingsService })
+      return () => {}
+    },
     logger: () => ({ warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
   } as unknown as Context
   apply(ctx, options.config ?? {})
@@ -173,5 +206,73 @@ describe('argument shape', () => {
     const { listener } = harness()
     const exec = { name: 'mcp__other__thing', arguments: {}, agent: undefined, callId: 'c1' } as unknown as ToolExecution
     expect((await listener(exec, async () => ({ kind: 'allow' }))).kind).toBe('allow')
+  })
+})
+
+describe('settings-backed switches', () => {
+  it('registers the write-switch namespace with its schema', () => {
+    let seen: { ns: string; schema: unknown } | undefined
+    harness({
+      settings: {
+        section: {},
+        onInstall: (ns, schema) => { seen = { ns, schema } },
+      },
+    })
+    expect(seen?.ns).toBe(WRITE_SWITCH_NAMESPACE)
+    expect(seen?.schema).toBe(WriteSwitchesSchema)
+  })
+
+  // The settings section is the override layer: it grants what the composition
+  // entry did not, which is the whole point of the card.
+  it('lets the stored section grant a write the entry left off', async () => {
+    const decision = await decide('UPDATE t SET a = 1', {
+      config: { database: 'app' },
+      settings: { section: { allowUpdate: true } },
+      approval: { request: async () => 'allowed-once' },
+    })
+    expect(decision.kind).toBe('allow')
+  })
+
+  // And the reverse: clearing a switch in the card must actually revoke it,
+  // not fall back to the entry's value.
+  it('lets the stored section revoke a write the entry granted', async () => {
+    const decision = await decide('UPDATE t SET a = 1', {
+      config: { allowUpdate: true, database: 'app' },
+      settings: { section: {} },
+      approval: { request: async () => 'allowed-once' },
+    })
+    expect(decision.kind).toBe('deny')
+    expect(decision.kind === 'deny' && decision.reason).toContain('allowUpdate is off')
+  })
+
+  it('reads only literal true as permission', async () => {
+    // A hand-edited document could hold a string or a number; neither may be
+    // read as a grant.
+    const decision = await decide('DROP TABLE t', {
+      config: { database: 'app' },
+      settings: { section: { allowDrop: 'true' } },
+      approval: { request: async () => 'allowed-once' },
+    })
+    expect(decision.kind).toBe('deny')
+    expect(decision.kind === 'deny' && decision.reason).toContain('allowDrop is off')
+  })
+
+  it('falls back to the composition entry when no settings provider is mounted', async () => {
+    const decision = await decide('UPDATE t SET a = 1', {
+      config: { allowUpdate: true, database: 'app' },
+      approval: { request: async () => 'allowed-once' },
+    })
+    expect(decision.kind).toBe('allow')
+  })
+
+  it('does not read a section shared with connection settings', async () => {
+    // The namespace is narrower than Config on purpose: even if a section
+    // carried connection fields, they must not reach the gate.
+    const decision = await decide('UPDATE t SET a = 1', {
+      config: { allowUpdate: true, database: 'app' },
+      settings: { section: { allowUpdate: true, database: '' } },
+      approval: { request: async () => 'allowed-once' },
+    })
+    expect(decision.kind).toBe('allow')
   })
 })

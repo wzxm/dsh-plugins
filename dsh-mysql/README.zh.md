@@ -2,7 +2,16 @@
 
 面向 DeepSeek Harness 的授权 MySQL MCP 插件。查询工具由配置的 MCP server 提供；写操作默认关闭，开启后仍必须通过 dsh 审批 seam 的一次性授权。
 
-安装：
+`dsh plugin --profile <name> add` 把参数转发给 profile 目录里的 pnpm。
+
+GitHub Packages（npm）。[包页面](https://github.com/wzxm/dsh-plugins/pkgs/npm/dsh-mysql)。该源即使公开包也要登录：在 `~/.npmrc` 写入 `@wzxm:registry=https://npm.pkg.github.com` 和 `//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}`，token 用带 `read:packages` 的 classic PAT。
+
+```bash
+dsh plugin --profile web add "@wzxm/dsh-mysql"
+dsh plugin --profile web add "@wzxm/dsh-mysql@0.2.0"
+```
+
+GitHub Release 附件，无需 npm 登录：
 
 ```bash
 dsh plugin --profile web add "https://github.com/wzxm/dsh-plugins/releases/latest/download/dsh-mysql.tgz"

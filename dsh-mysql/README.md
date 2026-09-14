@@ -2,7 +2,16 @@
 
 Authorized MySQL MCP tools for DeepSeek Harness. Read tools are available through the configured MCP server. Write tools are disabled by default and pass through the dsh approval seam when enabled.
 
-Install the packed release with:
+`dsh plugin --profile <name> add` forwards its arguments to pnpm in the profile directory.
+
+GitHub Packages (npm). [Package page](https://github.com/wzxm/dsh-plugins/pkgs/npm/dsh-mysql). The npm registry requires auth even for public packages: put `@wzxm:registry=https://npm.pkg.github.com` and `//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}` in `~/.npmrc`, using a classic PAT with `read:packages`.
+
+```bash
+dsh plugin --profile web add "@wzxm/dsh-mysql"
+dsh plugin --profile web add "@wzxm/dsh-mysql@0.2.0"
+```
+
+GitHub Release tarball, no npm login:
 
 ```bash
 dsh plugin --profile web add "https://github.com/wzxm/dsh-plugins/releases/latest/download/dsh-mysql.tgz"

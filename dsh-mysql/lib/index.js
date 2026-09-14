@@ -1,10 +1,79 @@
 import z from "@deepseek-ai/schemastery";
+//#region src/write-switches.ts
+/**
+* The write-switch vocabulary shared by the host gate and the browser card.
+*
+* Both halves must agree on the namespace, the field names, and their labels
+* without importing each other: the browser bundle is built with a purity gate
+* that forbids cross-plugin value imports, so the two sides meet only through
+* this file's *data*, duplicated by their own builds.
+*
+* @module dsh-mysql/write-switches
+*/
+/** The settings namespace holding this bridge's write switches. */
+const WRITE_SWITCH_NAMESPACE = "dsh-mysql";
+[
+	{
+		field: "allowInsert",
+		keyword: "INSERT",
+		/** Statements this switch permits, for the card's hint text. */
+		statements: "INSERT / REPLACE / LOAD"
+	},
+	{
+		field: "allowUpdate",
+		keyword: "UPDATE",
+		statements: "UPDATE, and SELECT … FOR UPDATE"
+	},
+	{
+		field: "allowDelete",
+		keyword: "DELETE",
+		statements: "DELETE"
+	},
+	{
+		field: "allowAlter",
+		keyword: "ALTER",
+		statements: "ALTER / CREATE / RENAME"
+	},
+	{
+		field: "allowTruncate",
+		keyword: "TRUNCATE",
+		statements: "TRUNCATE"
+	},
+	{
+		field: "allowDrop",
+		keyword: "DROP",
+		statements: "DROP"
+	}
+].map((s) => s.field);
+/**
+* Narrow an untrusted section to the switch values, treating anything that is
+* not literally `true` as off.
+*
+* The gate must never read a truthy-but-not-boolean value as permission: a
+* stored `"false"` string or a `1` from a hand-edited document would otherwise
+* enable a write the operator meant to disable.
+* @param section - the resolved section, from settings or from entry config.
+* @returns the six switches, each strictly boolean.
+*/
+function readWriteSwitches(section) {
+	const read = (field) => section?.[field] === true;
+	return {
+		allowInsert: read("allowInsert"),
+		allowUpdate: read("allowUpdate"),
+		allowDelete: read("allowDelete"),
+		allowAlter: read("allowAlter"),
+		allowTruncate: read("allowTruncate"),
+		allowDrop: read("allowDrop")
+	};
+}
+//#endregion
 //#region src/index.ts
 const name = "dsh-mysql";
 /**
-* Only `tools` is required. `approval` is resolved with `ctx.get` at the point
-* of use: a hard dependency would keep `apply` from ever running in a profile
-* without an approval seam, and the write gate would not be installed at all.
+* Only `tools` is required. `approval` and `settings` are both resolved with
+* `ctx.get` at the point of use: a hard dependency would keep `apply` from ever
+* running in a profile that composes neither, and the write gate would not be
+* installed at all.
 */
 const inject = ["tools"];
 const Config = z.object({
@@ -18,6 +87,22 @@ const Config = z.object({
 	allowDrop: z.boolean().default(false),
 	database: z.string().default(""),
 	allowMultiDbWrites: z.boolean().default(false)
+});
+/**
+* The six write switches as a settings section.
+*
+* Deliberately narrower than {@link Config}: the settings card edits write
+* permission, not the connection target or the multi-DB escape hatch. Those
+* stay composition-only so that granting cross-schema writes remains a
+* deliberate edit of the profile rather than a switch in a form.
+*/
+const WriteSwitchesSchema = z.object({
+	allowInsert: z.boolean().default(false),
+	allowUpdate: z.boolean().default(false),
+	allowDelete: z.boolean().default(false),
+	allowAlter: z.boolean().default(false),
+	allowTruncate: z.boolean().default(false),
+	allowDrop: z.boolean().default(false)
 });
 /** Leading keywords that are unambiguously reads and never need approval. */
 const READ_KEYWORDS = /* @__PURE__ */ new Set([
@@ -419,6 +504,16 @@ function apply(ctx, config = {}) {
 	const prefix = `mcp__${config.serverName ?? "mysql"}__`;
 	/** Set once the no-approval warning has been logged, so it is not repeated per call. */
 	let warnedNoApproval = false;
+	const entrySwitches = readWriteSwitches(config);
+	let switches = entrySwitches;
+	ctx.inject(["settings"], (settingsCtx) => {
+		settingsCtx.settings.installSection(ctx, WRITE_SWITCH_NAMESPACE, WriteSwitchesSchema, entrySwitches, {
+			setSource: (current) => {
+				switches = readWriteSwitches(current());
+			},
+			onChange: () => {}
+		});
+	});
 	ctx.on("tools/pre-execute", async (exec, next) => {
 		if (!exec.name.startsWith(prefix)) return next();
 		if (config.enabled === false) return {
@@ -448,9 +543,9 @@ function apply(ctx, config = {}) {
 			kind: "deny",
 			reason: `MYSQL_FILE_WRITE_DENIED: ${verdict.keyword} writes a file on the database host. That capability has no enable switch here; use a direct database client instead.`
 		};
-		if (config[verdict.setting] !== true) return {
+		if (switches[verdict.setting] !== true) return {
 			kind: "deny",
-			reason: `MYSQL_WRITE_AUTH_REQUIRED: ${verdict.setting} is off, so this statement is disabled. Enable it in the profile configuration and set the matching environment variable.`
+			reason: `MYSQL_WRITE_AUTH_REQUIRED: ${verdict.setting} is off, so this statement is disabled. Enable it in the profile configuration or in the MySQL settings card.`
 		};
 		if ((config.database ?? "") === "" && config.allowMultiDbWrites !== true) return {
 			kind: "deny",
@@ -491,6 +586,6 @@ var src_default = {
 	apply
 };
 //#endregion
-export { Config, apply, classifySql, cteHead, src_default as default, inject, maskLiterals, name, splitStatements };
+export { Config, WriteSwitchesSchema, apply, classifySql, cteHead, src_default as default, inject, maskLiterals, name, splitStatements };
 
 //# sourceMappingURL=index.js.map

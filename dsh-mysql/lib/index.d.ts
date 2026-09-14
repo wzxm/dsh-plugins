@@ -1,11 +1,53 @@
 import z from "@deepseek-ai/schemastery";
 import { Context } from "@deepseek-ai/cordis";
+//#region src/write-switches.d.ts
+/**
+ * One permission the bridge can grant, and the settings field that grants it.
+ *
+ * Order is presentation order in the card and is deliberately
+ * least-destructive first, so the two switches an operator should think twice
+ * about sit at the bottom.
+ */
+declare const WRITE_SWITCHES: readonly [{
+  readonly field: "allowInsert";
+  readonly keyword: "INSERT";
+  /** Statements this switch permits, for the card's hint text. */
+  readonly statements: "INSERT / REPLACE / LOAD";
+}, {
+  readonly field: "allowUpdate";
+  readonly keyword: "UPDATE";
+  readonly statements: "UPDATE, and SELECT … FOR UPDATE";
+}, {
+  readonly field: "allowDelete";
+  readonly keyword: "DELETE";
+  readonly statements: "DELETE";
+}, {
+  readonly field: "allowAlter";
+  readonly keyword: "ALTER";
+  readonly statements: "ALTER / CREATE / RENAME";
+}, {
+  readonly field: "allowTruncate";
+  readonly keyword: "TRUNCATE";
+  readonly statements: "TRUNCATE";
+}, {
+  readonly field: "allowDrop";
+  readonly keyword: "DROP";
+  readonly statements: "DROP";
+}];
+/** One entry of {@link WRITE_SWITCHES}. */
+type WriteSwitch = (typeof WRITE_SWITCHES)[number];
+/** A settings field name that grants a write. */
+type WriteSwitchField = WriteSwitch['field'];
+/** The resolved switch values, keyed by field. */
+type WriteSwitches = Record<WriteSwitchField, boolean>;
+//#endregion
 //#region src/index.d.ts
 declare const name = "dsh-mysql";
 /**
- * Only `tools` is required. `approval` is resolved with `ctx.get` at the point
- * of use: a hard dependency would keep `apply` from ever running in a profile
- * without an approval seam, and the write gate would not be installed at all.
+ * Only `tools` is required. `approval` and `settings` are both resolved with
+ * `ctx.get` at the point of use: a hard dependency would keep `apply` from ever
+ * running in a profile that composes neither, and the write gate would not be
+ * installed at all.
  */
 declare const inject: string[];
 interface Config {
@@ -15,6 +57,12 @@ interface Config {
    */
   enabled?: boolean;
   serverName?: string;
+  /**
+   * Composition-layer defaults for the six write switches, used when a settings
+   * namespace is mounted and as the whole value when one is not. These are the
+   * `base` layer: a stored `dsh-mysql` settings section (written from the
+   * settings card) overrides them field by field.
+   */
   allowInsert?: boolean;
   allowUpdate?: boolean;
   allowDelete?: boolean;
@@ -37,8 +85,17 @@ interface Config {
   allowMultiDbWrites?: boolean;
 }
 declare const Config: z<Config>;
+/**
+ * The six write switches as a settings section.
+ *
+ * Deliberately narrower than {@link Config}: the settings card edits write
+ * permission, not the connection target or the multi-DB escape hatch. Those
+ * stay composition-only so that granting cross-schema writes remains a
+ * deliberate edit of the profile rather than a switch in a form.
+ */
+declare const WriteSwitchesSchema: z<WriteSwitches>;
 /** The `allow*` switches, keyed by the write they permit. */
-type WriteSetting = 'allowInsert' | 'allowUpdate' | 'allowDelete' | 'allowAlter' | 'allowTruncate' | 'allowDrop';
+type WriteSetting = WriteSwitchField;
 /**
  * Split a SQL script into statements on top-level semicolons, with the bodies
  * of executable comments inlined as the SQL they carry.
@@ -116,5 +173,5 @@ declare const _default: {
   apply: typeof apply;
 };
 //#endregion
-export { Config, SqlVerdict, StatementVerdict, apply, classifySql, cteHead, _default as default, inject, maskLiterals, name, splitStatements };
+export { Config, SqlVerdict, StatementVerdict, WriteSwitchesSchema, apply, classifySql, cteHead, _default as default, inject, maskLiterals, name, splitStatements };
 //# sourceMappingURL=index.d.ts.map
