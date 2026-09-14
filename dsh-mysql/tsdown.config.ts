@@ -13,4 +13,15 @@ export default defineConfig({
   // previously shipped without a config that generated them.
   sourcemap: true,
   format: ['esm'],
+  // Everything the host also composes stays external: the harness supplies its
+  // own Cordis and Schemastery instances, and a plugin-private copy would give
+  // this row a different service registry than the rest of the profile.
+  deps: {
+    neverBundle: [
+      '@deepseek-ai/cordis',
+      '@deepseek-ai/schemastery',
+      '@deepseek-ai/dsh-tools',
+      '@deepseek-ai/dsh-user-approval',
+    ],
+  },
 })

@@ -1,0 +1,6 @@
+# esbuild's install script only fetches a platform binary that the
+# @esbuild/<platform> optional dependency already provides, and everything here
+# runs it through vitest. Keeping it unapproved means `pnpm install` executes no
+# dependency lifecycle scripts at all.
+allowBuilds:
+  esbuild: false
