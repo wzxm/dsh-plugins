@@ -1,0 +1,14 @@
+dsh-im/tests/shipped-lib.spec.ts
+  h_1811824342b47a 1-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "09b754891a8d9e61d951d7584f34a7297d33d574",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
