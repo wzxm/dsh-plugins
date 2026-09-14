@@ -9,7 +9,10 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "allowArbitraryExtensions": true
   },
   "include": ["src", "tests", "tsdown.config.ts"]
 }
