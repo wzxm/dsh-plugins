@@ -1,0 +1,64 @@
+dsh-mysql/README.md
+  s_8b7a5464c5e675::t_b644897b64b6c3 5-14
+.github/workflows/release-dsh-mysql.yml
+  s_8b7a5464c5e675::t_5b796344c714dc 10
+  s_8b7a5464c5e675::t_0171a078673e9e 70-79
+dsh-mysql/tests/seam.spec.ts
+  s_8b7a5464c5e675::t_dbba8c2aaf191d 26-32,36-49,55-65
+  s_8b7a5464c5e675::t_19bc3402456f06 66
+  s_8b7a5464c5e675::t_3fae5856436e87 16-17,211-278
+dsh-mysql/package.json
+  s_8b7a5464c5e675::t_58601c6d574623 23-24,26-30
+  s_8b7a5464c5e675::t_543bbd3e8b4ff6 25
+  s_b279e1dde7031d::t_adbadf25735143 16-21
+  s_8b7a5464c5e675::t_a3898e3f8126c0 37-39,43-44,46,53-54
+README.md
+  s_8b7a5464c5e675::t_3ab29ef870a268 89,97,99,108,110-111,113
+  s_8b7a5464c5e675::t_f498c5064388d6 13-30,33,36-46,52-58
+  s_8b7a5464c5e675::t_9c4e2fb432750b 3
+dsh-mysql/README.zh.md
+  s_8b7a5464c5e675::t_721ed3da6c03c2 5-14
+dsh-mysql/lib/index.d.ts
+  s_8b7a5464c5e675::t_0d66789e34b00e 3-43,47-50,60-65,88-96,98,176
+dsh-mysql/lib/index.d.ts.map
+  s_8b7a5464c5e675::t_cb909fba28ddde 1
+dsh-mysql/lib/index.js
+  s_8b7a5464c5e675::t_1bc3a563b01f91 2-69,73-76,91-106,507-516,546,548,589
+dsh-mysql/lib/index.js.map
+  s_8b7a5464c5e675::t_5958bca297ed3a 1
+dsh-mysql/pnpm-lock.yaml
+  s_8b7a5464c5e675::t_fcef6ff7a622c3 20-23,26,29,130-138,198-202,1508,1518,1554,1562,1589-1597,1615,1618,1626,1634,1637,1654-1657
+dsh-mysql/src/index.ts
+  s_8b7a5464c5e675::t_9bdeb8d673e85d 35-40,45-48,59-64,100-116,118,542-562,606,610
+dsh-mysql/src/write-switches.ts
+  s_8b7a5464c5e675::t_55e520a91ee317 1-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d7446bceb6a1d432c258516d934f78ddf0e88788",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  },
+  "sessions": {
+    "s_8b7a5464c5e675": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "097685e0-d6f4-44de-a482-4cbbc9aca5f1",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    },
+    "s_b279e1dde7031d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3d1d5bf7-89be-441d-9c64-00e33ed1587e",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
