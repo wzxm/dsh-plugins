@@ -13,9 +13,10 @@
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the slots service Context merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-// Type-only: pulls the settings shell's Context merge (ctx.settingsScope).
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: the package entry re-exports this as `export type`, so a bare
+// `import type {}` never loads the file that merges `ctx.settingsScope`.
+import type { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { MysqlCard } from './MysqlCard.tsx'
 import { MysqlCardController, type MysqlCardFace } from './card-controller.ts'
 import { CARD_LOCALE_NS, type MysqlCardProps } from './MysqlCard.tsx'
@@ -23,6 +24,12 @@ import { en, zh } from './locales.ts'
 import { WRITE_SWITCH_NAMESPACE } from '../write-switches.ts'
 // Type-only: pulls the card slot declaration this package registers into.
 import type {} from './slot-contract.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    settingsScope: SettingsScopeBinder
+  }
+}
 
 export type { MysqlCardProps } from './MysqlCard.tsx'
 export type { MysqlCardFace } from './card-controller.ts'

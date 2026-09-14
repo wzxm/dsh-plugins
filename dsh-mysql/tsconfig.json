@@ -11,8 +11,18 @@
     "noEmit": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
-    "types": ["node"],
-    "allowArbitraryExtensions": true
+    "allowArbitraryExtensions": true,
+    "paths": {
+      "@deepseek-ai/dsh-client-store": [
+        "./node_modules/@deepseek-ai/dsh-client-store/lib/types/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-settings/client": [
+        "./node_modules/@deepseek-ai/dsh-client-ui-settings/lib/types/client/index.d.ts"
+      ],
+      "@deepseek-ai/dsh-client-ui-settings-plugins/client/slot-contract": [
+        "./node_modules/@deepseek-ai/dsh-client-ui-settings-plugins/lib/types/client/slot-contract.d.ts"
+      ]
+    }
   },
   "include": ["src", "tests", "tsdown.config.ts"]
 }

@@ -1,30 +1,30 @@
 /**
- * The MySQL settings card.
+ * The MySQL settings card, wrapped in the official collapsible PluginCard
+ * shell.
  *
- * Renders one switch per SQL write kind. The composition layer (the profile's
- * `DSH_MYSQL_ALLOW_*` variables, surfaced as the scope's `base`) is the
- * ceiling, so a switch the profile left off is shown disabled rather than
- * hidden or silently ineffective — see `card-state.ts` for why.
+ * Uses staged-edit semantics: switch changes are staged, and only a Save
+ * writes them to the settings scope. The card reuses PluginCard's header and
+ * disclosure behavior (default collapsed), and adds its own save/discard
+ * footer as children.
  *
  * @module @wzxm/dsh-mysql/client/MysqlCard
  */
 
-import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { Switch, IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { CardShell } from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './MysqlCard.module.css'
 import type { MysqlCardFace } from './card-controller.ts'
 import type {} from './slot-contract.ts'
 import type { MysqlCardKey } from './locales.ts'
+import type { WriteSwitchField } from '../write-switches.ts'
 
 /** The dictionary this card reads its copy from. */
 export const CARD_LOCALE_NS = 'dsh-mysql'
 
 /**
  * Props the renderer binds for this card.
- *
- * The business face arrives spread (not as an `inject` member): the renderer
- * binds the registration's inject factory, so `useMysqlCard` and `setSwitch`
- * are top-level props.
  */
 export type MysqlCardProps =
   PropsRuntime<'settings.plugin.item'>
@@ -32,7 +32,7 @@ export type MysqlCardProps =
   & InjectFace<MysqlCardFace>
 
 /**
- * Render the card.
+ * Render the card using the official collapsible plugin card shell.
  * @param props - locale copy, the card snapshot, and its write actions.
  * @returns the card element.
  */
@@ -40,47 +40,146 @@ export function MysqlCard(props: MysqlCardProps) {
   const { t } = props
   const state = props.useMysqlCard(snapshot => snapshot)
 
+  // Collapsible state
+  const [expanded, setExpanded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [failed, setFailed] = useState(false)
+  // Staged changes: field → new value (undefined = no staged change)
+  const stagedRef = useRef(new Map<string, boolean>())
+  // Force re-render when staged changes
+  const [, forceUpdate] = useState(0)
+
   if (state.status === 'loading') {
-    return <ul className={css.card}><li className={css.muted}>{t('loading')}</li></ul>
+    return <div className={css.placeholder}>{t('loading')}</div>
   }
   if (state.status === 'unavailable') {
-    return <ul className={css.card}><li className={css.muted}>{t('unavailable')}</li></ul>
+    return <div className={css.placeholder}>{t('unavailable')}</div>
   }
 
+  const hasStaged = stagedRef.current.size > 0
+
+  const onToggleExpanded = useCallback(() => {
+    setExpanded(prev => !prev)
+  }, [])
+
+  const onStagedSwitch = useCallback((field: WriteSwitchField, value: boolean) => {
+    stagedRef.current.set(field, value)
+    forceUpdate(n => n + 1)
+  }, [])
+
+  const onSave = useCallback(async () => {
+    if (stagedRef.current.size === 0) return
+    setSaving(true)
+    setFailed(false)
+    let ok = true
+    for (const [field, value] of stagedRef.current) {
+      try {
+        await props.setSwitch(field as WriteSwitchField, value)
+      } catch {
+        ok = false
+      }
+    }
+    if (ok) stagedRef.current.clear()
+    setSaving(false)
+    setFailed(!ok)
+    forceUpdate(n => n + 1)
+  }, [props])
+
+  const onDiscard = useCallback(() => {
+    if (stagedRef.current.size === 0 && !failed) return
+    stagedRef.current.clear()
+    setFailed(false)
+    forceUpdate(n => n + 1)
+  }, [failed])
+
+  // Build the CardShell that PluginCard expects
+  const shell: CardShell = {
+    available: true,
+    writable: state.writable,
+    dirty: hasStaged,
+    invalid: false,
+    saving,
+    failed,
+  }
+
+  const title = t('title')
+  const saveDisabled = !hasStaged || saving
+
   return (
-    <ul className={css.card}>
-      <li className={css.head}>
-        <span className={css.name}>{t('title')}</span>
-        <span className={css.description}>{t('description')}</span>
-      </li>
-      <li className={css.notice}>{t('envNotice')}</li>
-      <li className={css.rows}>
-        {state.rows.map(row => (
-          <div key={row.field} className={css.row}>
-            <div className={css.rowText}>
-              <span className={css.label}>
-                {t('allow', { statements: row.statements })}
-                {row.overridden ? <span className={`${css.badge} ${css.overridden}`}>{t('overridden')}</span> : null}
-                {row.gate === 'env-required'
-                  ? <span className={css.badge}>{t('gated')}</span>
-                  : null}
-              </span>
-              <span className={css.hint}>{row.field}</span>
-            </div>
-            <Switch
-              checked={row.enabled}
-              // A kind the profile never authorized cannot be granted here:
-              // the MCP server would still refuse it.
-              disabled={!state.writable || (row.gate === 'env-required' && !row.enabled)}
-              label={t('allow', { statements: row.statements })}
-              title={row.gate === 'env-required' ? t('gated') : undefined}
-              onChange={(next) => { props.setSwitch(row.field, next) }}
-            />
+    <div className={css.card}>
+      <button
+        type="button"
+        className={css.header}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? t('collapse') : t('expand')}: ${title}`}
+        onClick={onToggleExpanded}
+      >
+        <span className={css.headText}>
+          <span className={css.name}>{title}</span>
+          <span className={css.description}>{t('description')}</span>
+        </span>
+        {hasStaged ? <span className={css.unsavedTag}>{t('unsaved')}</span> : null}
+        <IconChevronDownOutline14 className={`${css.chevronIcon} ${expanded ? css.chevronOpen : ''}`} aria-hidden="true" />
+      </button>
+      {expanded ? (
+        <div className={css.body}>
+          {!state.writable ? <div className={css.readOnly} role="status">{t('readOnly')}</div> : null}
+          <div className={css.notice}>{t('envNotice')}</div>
+          <div className={css.rows}>
+            {state.rows.map(row => {
+              // Show staged value if present; otherwise the scope's current value
+              const stagedValue = stagedRef.current.has(row.field)
+                ? stagedRef.current.get(row.field)
+                : undefined
+              const effectiveEnabled = stagedValue !== undefined ? stagedValue : row.enabled
+              const stagedOverride = stagedValue !== undefined
+
+              return (
+                <div key={row.field} className={css.row}>
+                  <div className={css.rowText}>
+                    <span className={css.label}>
+                      {row.statements}
+                      {stagedOverride ? <span className={`${css.badge} ${css.staged}`}>{t('staged')}</span> : null}
+                      {row.overridden && !stagedOverride ? <span className={`${css.badge} ${css.overridden}`}>{t('overridden')}</span> : null}
+                    </span>
+                    <span className={css.hint}>{row.field}</span>
+                  </div>
+                  {row.gate === 'env-required'
+                    ? <span className={css.envRequirement}>
+                        <span className={css.envStatus}>{t('envUnauthorized')}</span>
+                        <code className={css.envName}>{row.environment}=true</code>
+                      </span>
+                    : <Switch
+                        checked={effectiveEnabled}
+                        disabled={!state.writable || saving}
+                        label={t('allow', { statements: row.statements })}
+                        onChange={(next) => { onStagedSwitch(row.field as WriteSwitchField, next) }}
+                      />}
+                </div>
+              )
+            })}
           </div>
-        ))}
-      </li>
-      {state.error === undefined ? null : <li className={css.error}>{state.error}</li>}
-      {state.writable ? null : <li className={css.muted}>{t('readOnly')}</li>}
-    </ul>
+          {failed ? <div className={css.failed} role="status">{t('saveFailed')}</div> : null}
+          <div className={css.footer}>
+            <button
+              type="button"
+              className={css.discard}
+              disabled={!hasStaged || saving}
+              onClick={onDiscard}
+            >
+              {t('discard')}
+            </button>
+            <button
+              type="button"
+              className={css.save}
+              disabled={saveDisabled}
+              onClick={onSave}
+            >
+              {saving ? t('saving') : t('save')}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }

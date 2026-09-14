@@ -12,8 +12,10 @@
  * @module @wzxm/dsh-mysql/client/slot-contract
  */
 
-// Type-only: pulls the card slot's declaration (kind, scope, owner props).
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+// Type-only: load the file that merges `settings.plugin.item` into SlotMap.
+// The package entry only `export type`s this module, so `import type {}` from
+// `.../client` never applies the augmentation.
+import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client/slot-contract'
 import type { MysqlCardKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

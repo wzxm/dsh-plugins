@@ -11,27 +11,33 @@ import { Context } from "@deepseek-ai/cordis";
 declare const WRITE_SWITCHES: readonly [{
   readonly field: "allowInsert";
   readonly keyword: "INSERT";
+  readonly environment: "DSH_MYSQL_ALLOW_INSERT";
   /** Statements this switch permits, for the card's hint text. */
   readonly statements: "INSERT / REPLACE / LOAD";
 }, {
   readonly field: "allowUpdate";
   readonly keyword: "UPDATE";
+  readonly environment: "DSH_MYSQL_ALLOW_UPDATE";
   readonly statements: "UPDATE, and SELECT … FOR UPDATE";
 }, {
   readonly field: "allowDelete";
   readonly keyword: "DELETE";
+  readonly environment: "DSH_MYSQL_ALLOW_DELETE";
   readonly statements: "DELETE";
 }, {
   readonly field: "allowAlter";
   readonly keyword: "ALTER";
+  readonly environment: "DSH_MYSQL_ALLOW_ALTER";
   readonly statements: "ALTER / CREATE / RENAME";
 }, {
   readonly field: "allowTruncate";
   readonly keyword: "TRUNCATE";
+  readonly environment: "DSH_MYSQL_ALLOW_TRUNCATE";
   readonly statements: "TRUNCATE";
 }, {
   readonly field: "allowDrop";
   readonly keyword: "DROP";
+  readonly environment: "DSH_MYSQL_ALLOW_DROP";
   readonly statements: "DROP";
 }];
 /** One entry of {@link WRITE_SWITCHES}. */

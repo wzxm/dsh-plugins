@@ -5,8 +5,7 @@
  * @module @wzxm/dsh-mysql/client/card-controller
  */
 
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { projectCardState, type MysqlCardState } from './card-state.ts'
 import type { WriteSwitchField } from '../write-switches.ts'

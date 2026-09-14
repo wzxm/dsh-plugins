@@ -1,18 +1,43 @@
-/* The MySQL card's own chrome. Class names are hashed by the bundler, so these
-   are local identifiers, not a public API. */
+/* The MySQL card — a collapsible PluginCard-like chrome matching the official
+   PluginCard.module.css vocabulary. Class names are hashed. */
 
 .card {
   list-style: none;
   border: 0.5px solid var(--dsw-alias-border-l4, #e0e0e0);
   border-radius: 16px;
   background: var(--dsw-alias-bg-layer-3, #fff);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  transition: border-color 0.16s, background 0.16s;
+  overflow: hidden;
 }
 
-.head {
+.card:hover {
+  border-color: var(--dsw-alias-label-dimmed, #aaa);
+}
+
+.header {
+  width: 100%;
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.header:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary, #1a56b8);
+  outline-offset: -2px;
+  border-radius: 14px;
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -31,8 +56,46 @@
   color: var(--dsw-alias-label-tertiary, #666);
 }
 
-/* The env caveat is an explanation, not an error, so it reads as prose with a
-   left rule rather than a colored alert box. */
+.chevronIcon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary, #666);
+  transition: transform 0.16s ease;
+  transform: rotate(0deg);
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.unsavedTag {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-4, #f0f0f0);
+  color: var(--dsw-alias-label-tertiary, #666);
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.body {
+  padding: 0 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.placeholder {
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary, #666);
+}
+
 .notice {
   font-size: 13px;
   line-height: 1.5;
@@ -79,10 +142,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A gated row still shows its control, disabled: an absent switch would read
-   as "this kind does not exist" instead of "the profile did not authorize it". */
-.gated {
-  opacity: 0.6;
+.envRequirement {
+  flex: none;
+  max-width: 55%;
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.envStatus {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-tertiary, #666);
+}
+
+.envName {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-secondary, #444);
+  background: var(--dsw-alias-bg-layer-4, #f0f0f0);
+  border-radius: 4px;
+  padding: 2px 5px;
+  overflow-wrap: anywhere;
 }
 
 .badge {
@@ -101,14 +184,78 @@
   color: var(--dsw-alias-label-primary-bluish, #1a56b8);
 }
 
-.error {
+.staged {
+  background: var(--dsw-alias-state-business-tertiary, #e8f0fe);
+  color: var(--dsw-alias-label-primary-bluish, #1a56b8);
+}
+
+.failed {
   font-size: 13px;
   line-height: 1.5;
   color: var(--dsw-alias-label-error, #c00);
 }
 
-.muted {
+.readOnly {
   font-size: 13px;
   line-height: 1.5;
   color: var(--dsw-alias-label-tertiary, #666);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.discard,
+.save {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.discard {
+  color: var(--dsw-alias-label-secondary, #444);
+  background: transparent;
+  border: 0;
+}
+
+.discard:hover {
+  background: var(--dsw-alias-bg-layer-4, #f0f0f0);
+}
+
+.discard:disabled {
+  color: var(--dsw-alias-label-quaternary, #bbb);
+  cursor: default;
+}
+
+.save {
+  color: var(--dsw-alias-label-primary-inverted, #fff);
+  background: var(--dsw-alias-brand-primary, #1a56b8);
+  border: 0;
+}
+
+.save:hover {
+  opacity: 0.85;
+}
+
+.save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (max-width: 520px) {
+  .row {
+    align-items: flex-start;
+  }
+
+  .envRequirement {
+    max-width: 48%;
+    align-items: flex-start;
+  }
 }

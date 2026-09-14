@@ -16,32 +16,38 @@ const WRITE_SWITCH_NAMESPACE = "dsh-mysql";
 	{
 		field: "allowInsert",
 		keyword: "INSERT",
+		environment: "DSH_MYSQL_ALLOW_INSERT",
 		/** Statements this switch permits, for the card's hint text. */
 		statements: "INSERT / REPLACE / LOAD"
 	},
 	{
 		field: "allowUpdate",
 		keyword: "UPDATE",
+		environment: "DSH_MYSQL_ALLOW_UPDATE",
 		statements: "UPDATE, and SELECT … FOR UPDATE"
 	},
 	{
 		field: "allowDelete",
 		keyword: "DELETE",
+		environment: "DSH_MYSQL_ALLOW_DELETE",
 		statements: "DELETE"
 	},
 	{
 		field: "allowAlter",
 		keyword: "ALTER",
+		environment: "DSH_MYSQL_ALLOW_ALTER",
 		statements: "ALTER / CREATE / RENAME"
 	},
 	{
 		field: "allowTruncate",
 		keyword: "TRUNCATE",
+		environment: "DSH_MYSQL_ALLOW_TRUNCATE",
 		statements: "TRUNCATE"
 	},
 	{
 		field: "allowDrop",
 		keyword: "DROP",
+		environment: "DSH_MYSQL_ALLOW_DROP",
 		statements: "DROP"
 	}
 ].map((s) => s.field);

@@ -25,7 +25,7 @@ dsh plugin --profile web add "https://github.com/wzxm/dsh-plugins/releases/lates
 
 ## 配置
 
-在**启动 `dsh` 的环境**里 `export`，不要写进任何 `.env`（`DSH_` 是保留前缀，写进去会启动失败）。
+在**启动 `dsh` 的环境**里 `export`。插件不会自动读取 `.env`；如果使用单独的环境文件，启动前必须在同一个 shell 中 `source` 它。
 
 ```bash
 # ~/.zshrc 或单独文件再 source
@@ -37,6 +37,10 @@ export DSH_MYSQL_DATABASE=app
 ```
 
 改完后重启 `dsh`。上游 server 读的是 `MYSQL_PASS` / `MYSQL_DB`，插件会从上面这组变量转发过去。
+
+`DSH_MYSQL_ALLOW_*` 中的 `*` 不是变量名的一部分，也不是一个总开关；它代表下面对应的具体操作。不要写 `DSH_MYSQL_ALLOW=true`。例如只允许更新时写 `export DSH_MYSQL_ALLOW_UPDATE=true`，其他写操作仍保持关闭。
+
+`~/.dsh/mysql.env` 不会被插件自动读取。若把变量放在那里，请在启动 dsh 的同一个 shell 中先执行 `source ~/.dsh/mysql.env`；也可以直接放在 `~/.zshrc` 中。修改后需要重启对应 profile。
 
 ## 写操作
 

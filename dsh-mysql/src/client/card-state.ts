@@ -32,6 +32,8 @@ export interface SwitchRow {
   field: WriteSwitchField
   /** Statements the switch governs, for the row's hint. */
   statements: string
+  /** The startup environment variable that authorizes this write kind. */
+  environment: string
   /** Whether the settings layer currently grants the write. */
   enabled: boolean
   /** Whether the user layer overrides the composition layer for this field. */
@@ -77,6 +79,7 @@ export function projectCardState(snapshot: SettingsScopeSnapshot<unknown>): Mysq
     rows: WRITE_SWITCHES.map((entry): SwitchRow => ({
       field: entry.field,
       statements: entry.statements,
+      environment: entry.environment,
       enabled: resolved[entry.field],
       overridden: Object.prototype.hasOwnProperty.call(user, entry.field),
       // The base layer is the server's ceiling: a kind the profile did not

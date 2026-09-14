@@ -25,7 +25,7 @@ Then set the environment variables and restart the profile.
 
 ## Config
 
-`export` these in the environment that **launches `dsh`**. Do not put `DSH_*` in any `.env` — that prefix is reserved and startup will fail.
+`export` these in the environment that **launches `dsh`**. The plugin does not load `.env` files automatically; if you use a separate env file, `source` it in that same shell before launching `dsh`.
 
 ```bash
 # ~/.zshrc, or a file you source from it
@@ -37,6 +37,10 @@ export DSH_MYSQL_DATABASE=app
 ```
 
 Restart `dsh` after changing them. The upstream server reads `MYSQL_PASS` / `MYSQL_DB`; the plugin forwards from the names above.
+
+`DSH_MYSQL_ALLOW_*` is not one variable and `*` is not literal: each suffix controls one operation listed below. Do not set `DSH_MYSQL_ALLOW=true`. For example, `export DSH_MYSQL_ALLOW_UPDATE=true` enables only the update class; the other write classes remain off.
+
+`~/.dsh/mysql.env` is not loaded automatically. If you keep the exports there, run `source ~/.dsh/mysql.env` in the same shell that launches `dsh` (or source it from `~/.zshrc`), then restart the profile.
 
 ## Writes
 
