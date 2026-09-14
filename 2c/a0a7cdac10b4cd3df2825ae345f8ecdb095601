@@ -1,0 +1,58 @@
+dsh-im/README.md
+  h_1811824342b47a 3-67,75-76,82,91,99,101-103,107-109,119
+dsh-im/README.zh.md
+  h_1811824342b47a 3-45,83,85,89,99
+dsh-im/cordis.patch.yml
+  h_1811824342b47a 1-9,16-30
+dsh-im/lib/index.d.ts
+  h_1811824342b47a 1,3-55,57-68,70-164,167-201,204-219,221-236,268-301,320-369,372-375,378,380,382-404,406-414,419,423-424
+dsh-im/lib/index.d.ts.map
+  h_1811824342b47a 1
+dsh-im/lib/index.js
+  h_1811824342b47a 1-12,14-35,37-51,53-57,59-128,130-149,151-153,155-157,159-210,212-219,258-529,546-592,595-598,600-646,648-698,701-703,706,709-718,720,725,729-731
+dsh-im/lib/index.js.map
+  h_1811824342b47a 1
+dsh-im/package.json
+  h_1811824342b47a 1
+dsh-im/pnpm-lock.yaml
+  h_1811824342b47a 10-13
+dsh-im/src/body.ts
+  h_1811824342b47a 1-81
+dsh-im/src/decrypt.ts
+  h_1811824342b47a 1-57
+dsh-im/src/event.ts
+  h_1811824342b47a 1-263
+dsh-im/src/feishu-api.ts
+  h_1811824342b47a 1-45,47-52,54,59-83,85,87-88,90-108,111-112,115-127,129,131-132,134-167,170-212,214-229,232-236,238-240,247-257
+dsh-im/src/feishu.ts
+  h_1811824342b47a 1-25,27-48,50-60,63-65,70-72
+dsh-im/src/handler.ts
+  h_1811824342b47a 1-190
+dsh-im/src/index.ts
+  h_1811824342b47a 1-24,27-34,38,40-42,44-48,50,52,54,56-96,98-155,157-210,212-217,219,221-232,234-245,247-248
+dsh-im/src/webhook-types.ts
+  h_1811824342b47a 1-28
+dsh-im/tests/apply.spec.ts
+  h_1811824342b47a 1-185
+dsh-im/tests/decrypt.spec.ts
+  h_1811824342b47a 1-72
+dsh-im/tests/feishu-api.spec.ts
+  h_1811824342b47a 1-218
+dsh-im/tests/feishu.spec.ts
+  h_1811824342b47a 1-256
+dsh-im/tests/handler.spec.ts
+  h_1811824342b47a 1-326
+dsh-im/tsdown.config.ts
+  h_1811824342b47a 1-16,18-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2ca0a7cdac10b4cd3df2825ae345f8ecdb095601",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
