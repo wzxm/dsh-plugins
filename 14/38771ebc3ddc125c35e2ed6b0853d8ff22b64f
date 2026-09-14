@@ -1,0 +1,19 @@
+README.md
+  s_b279e1dde7031d::t_69317695a279ab 67,70-71,77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1438771ebc3ddc125c35e2ed6b0853d8ff22b64f",
+  "prompts": {},
+  "sessions": {
+    "s_b279e1dde7031d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3d1d5bf7-89be-441d-9c64-00e33ed1587e",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
