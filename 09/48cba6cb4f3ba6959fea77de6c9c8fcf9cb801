@@ -1,0 +1,24 @@
+dsh-mysql/src/index.ts
+  s_b279e1dde7031d::t_720c4354aa45b5 34
+dsh-mysql/cordis.patch.yml
+  s_b279e1dde7031d::t_b1e82171da42ef 7-8,17-21,41-44,52
+  s_b279e1dde7031d::t_b7134cbcde0fe0 45-49
+  s_b279e1dde7031d::t_816810eb98bf88 50-51
+  s_b279e1dde7031d::t_508f53d41ea9fa 53-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0948cba6cb4f3ba6959fea77de6c9c8fcf9cb801",
+  "prompts": {},
+  "sessions": {
+    "s_b279e1dde7031d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3d1d5bf7-89be-441d-9c64-00e33ed1587e",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
