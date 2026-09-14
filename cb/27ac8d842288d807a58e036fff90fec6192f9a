@@ -1,0 +1,48 @@
+dsh-im/README.md
+  h_1811824342b47a 17-41,57-60,76-80,93-105,107-109
+dsh-im/README.zh.md
+  h_1811824342b47a 14-35,43-45,60-64,72-81,83-84
+dsh-im/cordis.patch.yml
+  h_1811824342b47a 31-39
+dsh-im/lib/index.d.ts
+  h_1811824342b47a 2,80-85,95-108,113,115,117,120-131,336-415,489-498,519
+dsh-im/lib/index.d.ts.map
+  h_1811824342b47a 1
+dsh-im/lib/index.js
+  h_1811824342b47a 1,4-6,8-347,449-465,702-706,801-802,820-824,863-871,873-876,880-895,924-941,946-951,964
+dsh-im/lib/index.js.map
+  h_1811824342b47a 1
+dsh-im/package.json
+  h_1811824342b47a 1
+dsh-im/pnpm-lock.yaml
+  h_1811824342b47a 18-29,36-47,51-53
+dsh-im/src/dispatch.ts
+  h_1811824342b47a 1-183
+dsh-im/src/event.ts
+  h_1811824342b47a 77-82,94-107,112,114,116,120-141
+dsh-im/src/handler.ts
+  h_1811824342b47a 27-33,165-170,172,175
+dsh-im/src/index.ts
+  h_1811824342b47a 26,28-33,36-37,46-47,85-94,115-127,146-150,205-214,217-219,221-223,228-255,290-304,307,312-316
+dsh-im/src/session-bridge.ts
+  h_1811824342b47a 1-128
+dsh-im/tests/apply.spec.ts
+  h_1811824342b47a 2-3,7-54,65-67,69-72,76,87-94,103,110-115,117,129-133,139-141,143,145,162-194,231-245
+dsh-im/tests/dispatch.spec.ts
+  h_1811824342b47a 1-397
+dsh-im/tests/integration.spec.ts
+  h_1811824342b47a 1-337
+dsh-im/tsdown.config.ts
+  h_1811824342b47a 5,11-15,30-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cb27ac8d842288d807a58e036fff90fec6192f9a",
+  "prompts": {},
+  "humans": {
+    "h_1811824342b47a": {
+      "author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
