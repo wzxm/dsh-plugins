@@ -1,6 +1,56 @@
 import { describe, it, expect, vi } from 'vitest'
+import { Readable } from 'node:stream'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { apply, Config, name, inject } from '../src/index.ts'
 import type { Config as PluginConfig } from '../src/index.ts'
+
+/**
+ * POST one unsigned plaintext message straight at a route handler and return
+ * the response.
+ *
+ * Signature verification is skipped here because `BASE` configures no encrypt
+ * key — which is exactly the production behaviour when the Feishu app has no
+ * Encrypt Key set. This drives the real `onMessage` path rather than a stub.
+ */
+async function deliverText (
+  route: RegisteredRoute,
+  text: string,
+  init: { chatType?: string; mentions?: unknown[] } = {},
+): Promise<{ status: number; body: string }> {
+  const payload = JSON.stringify({
+    schema: '2.0',
+    header: { event_id: 'evt_apply', event_type: 'im.message.receive_v1' },
+    event: {
+      sender: { sender_id: { open_id: 'ou_user' } },
+      message: {
+        message_id: 'om_1',
+        chat_id: 'oc_1',
+        chat_type: init.chatType ?? 'p2p',
+        message_type: 'text',
+        content: JSON.stringify({ text }),
+        ...(init.mentions === undefined ? {} : { mentions: init.mentions }),
+      },
+    },
+  })
+  const req = Readable.from([Buffer.from(payload, 'utf8')]) as unknown as IncomingMessage
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  req.method = 'POST'
+  req.headers = headers
+  req.headersDistinct = { 'content-type': ['application/json'] }
+  Object.defineProperty(req, 'complete', { value: true })
+
+  const state = {
+    status: 0,
+    body: '',
+    setHeader: () => {},
+    writeHead (status: number) { state.status = status; return state },
+    end (chunk?: string) { state.body = chunk ?? '' },
+  }
+  await route.handler(req, state as unknown as ServerResponse)
+  // Let the handler's async tail (message dispatch) settle.
+  await new Promise(resolve => setTimeout(resolve, 0))
+  return { status: state.status, body: state.body }
+}
 
 /** A route registration captured from the fake web server. */
 interface RegisteredRoute {
@@ -12,11 +62,18 @@ interface RegisteredRoute {
 /**
  * A fake Cordis context recording `webServer.register` calls and `ctx.effect`
  * disposers, so `apply` can be exercised without booting a real harness.
+ *
+ * `inject` mirrors Cordis: the callback runs only when every requested service
+ * is present. Pass `agentStack: true` to simulate a profile that has them.
  */
-function fakeCtx (services: Record<string, unknown> = {}) {
+function fakeCtx (
+  services: Record<string, unknown> = {},
+  options: { agentStack?: boolean } = {},
+) {
   const registered: RegisteredRoute[] = []
   const disposers: Array<() => unknown> = []
   const warnings: string[] = []
+  const injectCalls: string[][] = []
   const webServer = {
     register (route: RegisteredRoute) {
       registered.push(route)
@@ -27,6 +84,14 @@ function fakeCtx (services: Record<string, unknown> = {}) {
       return dispose
     },
   }
+  /** The services an Agent stack provides, when a test wants them present. */
+  const stack = options.agentStack === true
+    ? {
+        agents: {}, agentPresets: {}, agentDefaultModel: {},
+        permissionPresets: {}, sessionTitle: {}, workspaceRegistry: {},
+      }
+    : {}
+  const all: Record<string, unknown> = { webServer, ...stack, ...services }
   const ctx = {
     webServer,
     logger: {
@@ -35,15 +100,21 @@ function fakeCtx (services: Record<string, unknown> = {}) {
       error: vi.fn(),
       debug: vi.fn(),
     },
-    get: (key: string) => (key === 'webServer' ? webServer : services[key]),
+    get: (key: string) => all[key],
     effect (factory: () => unknown) {
       // Cordis runs the factory immediately and owns what it returns.
       const result = factory()
       if (typeof result === 'function') disposers.push(result as () => unknown)
       return () => {}
     },
+    inject (deps: string[], callback: (c: unknown) => unknown) {
+      injectCalls.push(deps)
+      // Cordis starts the callback only once every dependency is available.
+      if (deps.every(dep => all[dep] !== undefined)) callback(ctx)
+      return () => {}
+    },
   }
-  return { ctx: ctx as never, registered, disposers, warnings }
+  return { ctx: ctx as never, registered, disposers, warnings, injectCalls }
 }
 
 /** A minimal valid config, matching what the loader would resolve. */
@@ -55,16 +126,23 @@ const BASE: PluginConfig = {
   appIdRef: '',
   appSecretRef: '',
   botOpenId: '',
+  botId: 'feishu',
+  workspacePath: '',
+  agentPreset: 'standard',
+  permissionPreset: 'default',
+  maxReplyChars: 4000,
   maxBodyBytes: 1_048_576,
 }
 
 describe('plugin descriptor', () => {
   it('declares only webServer as a hard dependency', () => {
-    // webhookRuntime and credentials must NOT be injected: no shipped bundle
-    // composes the former, so injecting it would park apply() forever.
+    // The Agent stack and credentials must NOT be hard-injected: routes have to
+    // register in a profile without an agent loop, and a missing service would
+    // park apply() forever instead.
     expect(inject).toEqual(['webServer'])
-    expect(inject).not.toContain('webhookRuntime')
+    expect(inject).not.toContain('agents')
     expect(inject).not.toContain('credentials')
+    expect(inject).not.toContain('webhookRuntime')
     expect(name).toBe('dsh-im')
   })
 
@@ -81,6 +159,39 @@ describe('plugin descriptor', () => {
     expect(value.maxBodyBytes).toBe(1_048_576)
     expect(value.encryptKeyRef).toBe('')
     expect(value.botOpenId).toBe('')
+    expect(value.botId).toBe('feishu')
+    expect(value.agentPreset).toBe('standard')
+    expect(value.permissionPreset).toBe('default')
+    expect(value.maxReplyChars).toBe(4000)
+  })
+})
+
+describe('agent-stack wiring', () => {
+  it('requests the Agent stack through ctx.inject, not a hard dependency', () => {
+    const { ctx, injectCalls } = fakeCtx()
+    apply(ctx, BASE)
+    expect(injectCalls).toHaveLength(1)
+    expect(injectCalls[0]).toEqual([
+      'agents', 'agentPresets', 'agentDefaultModel',
+      'permissionPresets', 'sessionTitle', 'workspaceRegistry',
+    ])
+  })
+
+  it('still registers both routes when no Agent stack is mounted', () => {
+    // The callback route must answer even in a profile with no agent loop.
+    const { ctx, registered } = fakeCtx({})
+    expect(() => apply(ctx, BASE)).not.toThrow()
+    expect(registered).toHaveLength(2)
+  })
+
+  it('warns that messages go unanswered when the Agent stack is absent', async () => {
+    // Exercise the real path: deliver a message and observe the warning.
+    const { ctx, registered, warnings } = fakeCtx({})
+    apply(ctx, BASE)
+    const callback = registered.find(r => r.path === '/webhooks/feishu')
+    expect(callback).toBeDefined()
+    await deliverText(callback!, 'hello')
+    expect(warnings.join(' ')).toContain('Agent stack is not mounted')
   })
 })
 
@@ -115,6 +226,21 @@ describe('apply', () => {
   it('rejects identical callback and oauth paths', () => {
     const { ctx } = fakeCtx()
     expect(() => apply(ctx, { ...BASE, oauthCallbackPath: BASE.callbackPath })).toThrow(/must differ/)
+  })
+
+  it('rejects a relative workspacePath at activation, not per message', () => {
+    // The workspace registry rejects a relative path; failing only when the first
+    // message arrives would be a silent, delayed misconfiguration.
+    const { ctx } = fakeCtx()
+    expect(() => apply(ctx, { ...BASE, workspacePath: 'relative/ws' })).toThrow(/absolute path/)
+    expect(() => apply(ctx, { ...BASE, workspacePath: '/ok' })).not.toThrow()
+    // Empty means "unset", which is valid and skips the workspace entirely.
+    expect(() => apply(ctx, { ...BASE, workspacePath: '' })).not.toThrow()
+  })
+
+  it('rejects a non-positive reply ceiling', () => {
+    const { ctx } = fakeCtx()
+    expect(() => apply(ctx, { ...BASE, maxReplyChars: 0 })).toThrow(/maxReplyChars/)
   })
 
   it('does not require webhookRuntime or credentials to be mounted', () => {

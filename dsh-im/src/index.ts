@@ -23,22 +23,30 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { isAbsolute } from 'node:path'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-permission-presets'
+import type {} from '@deepseek-ai/dsh-session-title'
+import type {} from '@deepseek-ai/dsh-workspace'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
-import { WebhookDeliveryId, WebhookSourceId } from '@deepseek-ai/dsh-webhook'
 import z from '@deepseek-ai/schemastery'
+import { createFeishuApi, type FeishuApi } from './feishu-api.ts'
+import { createDispatcher, type DispatchResult } from './dispatch.ts'
 import { createFeishuHandler } from './handler.ts'
 import type { NormalizedMessage } from './event.ts'
-import type {} from './webhook-types.ts'
 
 export * from './event.ts'
 export * from './feishu.ts'
 export * from './feishu-api.ts'
 export * from './signature.ts'
 export * from './decrypt.ts'
+export * from './session-bridge.ts'
+export * from './dispatch.ts'
 export * from './bot-store.ts'
 export * from './quick-onboarding.ts'
-export type * from './webhook-types.ts'
 
 export const name = 'dsh-im'
 
@@ -74,6 +82,16 @@ export interface Config {
    * it is required for group use even though p2p works without it.
    */
   botOpenId?: string
+  /** Bot instance id; scopes conversation keys so two bots never share a Session. */
+  botId?: string
+  /** Working directory for Sessions created by this bot. */
+  workspacePath?: string
+  /** Agent composition mounted for each new Session. */
+  readonly agentPreset?: string
+  /** Permission preset applied to each Session. */
+  permissionPreset?: string
+  /** Ceiling on one reply, in characters, before truncation. */
+  maxReplyChars?: number
   /** Raw callback body ceiling in bytes. */
   maxBodyBytes?: number
 }
@@ -94,6 +112,19 @@ function assertConfig (config: Config): void {
   if (config.callbackPath === config.oauthCallbackPath) {
     throw new Error('dsh-im callbackPath and oauthCallbackPath must differ')
   }
+  // The workspace registry rejects a relative path, and a Session created with a
+  // bad cwd fails only once a message arrives. Validating at activation turns a
+  // silent per-message failure into a startup error. `assertConfig` runs on the
+  // pre-default config, so an absent value is fine here.
+  if (config.workspacePath !== undefined && config.workspacePath !== ''
+    && !isAbsolute(config.workspacePath)) {
+    throw new Error(
+      `dsh-im workspacePath must be an absolute path, got ${JSON.stringify(config.workspacePath)}`,
+    )
+  }
+  if (config.maxReplyChars !== undefined && config.maxReplyChars < 1) {
+    throw new Error('dsh-im maxReplyChars must be at least 1')
+  }
 }
 
 /**
@@ -112,6 +143,11 @@ export const Config: z<Required<Config>> = z.object({
   appIdRef: z.string().default(''),
   appSecretRef: z.string().default(''),
   botOpenId: z.string().default(''),
+  botId: z.string().default('feishu'),
+  workspacePath: z.string().default(''),
+  agentPreset: z.string().default('standard'),
+  permissionPreset: z.string().default('default'),
+  maxReplyChars: z.natural().default(4000),
   maxBodyBytes: z.natural().default(1_048_576),
 })
 
@@ -166,38 +202,57 @@ export function apply (ctx: Context, config: Config): void {
   let verificationToken: string | undefined
   /** Fixed at activation; a changed open_id needs a plugin reload anyway. */
   const botOpenId = resolved.botOpenId
-  /** Set once the missing-runtime warning has been logged. */
-  let warnedNoRuntime = false
+
+  /** Set once the dispatcher is wired by the Agent-stack injection below. */
+  let dispatch: ((message: NormalizedMessage) => Promise<DispatchResult>) | undefined
+  /** Set once the app credentials resolve into a usable API client. */
+  let api: FeishuApi | undefined
+  /** The Agent stack context, supplied by `ctx.inject` when those services exist. */
+  let agentStack: Context | undefined
+  /** Logged once each, so a busy callback cannot flood the log. */
+  let warnedNoStack = false
+  let warnedNoApi = false
 
   const onMessage = async (message: NormalizedMessage): Promise<void> => {
-    const runtime = ctx.get('webhookRuntime')
-    if (runtime === undefined) {
-      if (!warnedNoRuntime) {
-        warnedNoRuntime = true
+    if (agentStack === undefined) {
+      if (!warnedNoStack) {
+        warnedNoStack = true
         ctx.logger.warn(
-          'dsh-im: no webhook runtime is mounted, so inbound Feishu messages are '
-          + 'acknowledged but never turned into Sessions; compose @deepseek-ai/dsh-webhook',
+          'dsh-im: the Agent stack is not mounted, so inbound Feishu messages are '
+          + 'acknowledged but never answered; compose an agent loop, agent presets, '
+          + 'permission presets, session-title, and the workspace registry',
         )
       }
       return
     }
-    // Only scalars cross into the delivery: the runtime snapshots it as JSON, and
-    // a live object would either throw or leak Host internals into rules.
-    runtime.dispatch({
-      kind: 'im',
-      source: WebhookSourceId(name),
-      deliveryId: WebhookDeliveryId(message.eventId),
-      event: {
-        provider: 'feishu',
-        chatType: message.chatType,
-        chatId: message.chatId,
-        senderOpenId: message.senderOpenId,
-        text: message.text,
-        ...(message.threadId === undefined ? {} : { threadId: message.threadId }),
-        ...(message.parentId === undefined ? {} : { parentId: message.parentId }),
-      },
-      receivedAt: Date.now(),
-    })
+    if (api === undefined) {
+      if (!warnedNoApi) {
+        warnedNoApi = true
+        ctx.logger.warn(
+          'dsh-im: no Feishu app credentials are configured, so replies cannot be '
+          + 'sent; set appIdRef and appSecretRef',
+        )
+      }
+      return
+    }
+    // Built lazily on first use: the Agent stack and the credentials resolve
+    // independently and in either order, so a single "both are ready" hook would
+    // be wrong. This also keeps the queue and Agent map alive across messages,
+    // which is what gives a conversation Session continuity.
+    dispatch ??= createDispatcher(agentStack, {
+      botId: resolved.botId,
+      workspacePath: resolved.workspacePath,
+      agentPreset: resolved.agentPreset,
+      permissionPreset: resolved.permissionPreset,
+      maxReplyChars: resolved.maxReplyChars,
+    }, api)
+
+    const result = await dispatch(message)
+    if (!result.replied) {
+      ctx.logger.info(
+        `dsh-im: no reply for ${message.eventId} (${result.reason ?? 'unknown'})`,
+      )
+    }
   }
 
   const handler = createFeishuHandler(ctx, {
@@ -232,13 +287,33 @@ export function apply (ctx: Context, config: Config): void {
     `dsh-im: ${resolved.oauthCallbackPath}`,
   )
 
+  /**
+   * Wire the dispatcher once the Agent stack exists.
+   *
+   * `ctx.inject` (rather than a hard `inject` on this plugin) keeps route
+   * registration independent of the Agent stack: the callback route must answer
+   * in a profile that has no agent loop, and the ordering between this plugin
+   * and the bundle rows providing these services is not guaranteed.
+   */
+  ctx.inject(
+    ['agents', 'agentPresets', 'agentDefaultModel', 'permissionPresets', 'sessionTitle', 'workspaceRegistry'],
+    (agentCtx) => {
+      agentStack = agentCtx
+    },
+  )
+
   // Secrets resolve asynchronously after the routes exist, so a slow credential
   // provider cannot delay registration. Requests arriving first are answered
-  // 503/401 by the handler, which is the correct fail-closed behaviour.
+  // fail-closed by the handler.
   void (async () => {
     try {
       encryptKey = await resolveSecret(ctx, resolved.encryptKeyRef)
       verificationToken = await resolveSecret(ctx, resolved.verificationTokenRef)
+      const appId = await resolveSecret(ctx, resolved.appIdRef)
+      const appSecret = await resolveSecret(ctx, resolved.appSecretRef)
+      if (appId !== undefined && appSecret !== undefined) {
+        api = createFeishuApi({ appId, appSecret })
+      }
     } catch (error: unknown) {
       ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
     }

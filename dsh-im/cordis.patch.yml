@@ -28,4 +28,13 @@
         # reports the mention's author, never the reader), and without it every
         # group message is discarded. p2p works without it.
         botOpenId: !!js process.env.DSH_IM_BOT_OPEN_ID ?? ''
+        # Session wiring. `botId` scopes conversation keys, so two bots configured
+        # in one profile never share a Session.
+        botId: !!js process.env.DSH_IM_BOT_ID ?? 'feishu'
+        workspacePath: !!js process.env.DSH_IM_WORKSPACE ?? process.cwd()
+        agentPreset: !!js process.env.DSH_IM_AGENT_PRESET ?? 'standard'
+        permissionPreset: !!js process.env.DSH_IM_PERMISSION_PRESET ?? 'default'
+        # Feishu's practical text ceiling; longer replies are truncated here rather
+        # than rejected by the API after a full turn has already been spent.
+        maxReplyChars: 4000
         maxBodyBytes: 1048576

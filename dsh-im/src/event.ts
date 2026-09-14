@@ -74,6 +74,12 @@ export interface FeishuMessageEvent {
     readonly sender_type?: string
   }
   readonly message?: FeishuMessage
+  /**
+   * Present on the v2.0 URL-verification handshake, where the challenge sits
+   * inside `event` rather than at the envelope's top level.
+   */
+  readonly challenge?: string
+  readonly token?: string
 }
 
 /** The `header` object of a v2.0 envelope. */
@@ -85,15 +91,52 @@ export interface FeishuEventHeader {
   readonly app_id?: string
 }
 
-/** A parsed v2.0 event callback. */
+/**
+ * A parsed event callback, covering both wire forms Feishu uses.
+ *
+ * Feishu sends the handshake in **two** shapes and both must be handled:
+ *
+ * - **v1 (flat)** — `{"type":"url_verification","challenge":"…","token":"…"}`,
+ *   with the fields at the top level.
+ * - **v2.0 (envelope)** — `{"schema":"2.0","header":{"event_type":
+ *   "url_verification"},"event":{"challenge":"…"}}`, with the fields nested.
+ *
+ * Reading only the top-level form (as an earlier version of the handler did)
+ * answers a real v2.0 handshake with an empty body, and the Feishu console then
+ * reports the URL as unreachable — the app never finishes setup.
+ */
 export interface FeishuCallback {
   readonly schema?: string
   readonly header?: FeishuEventHeader
   readonly event?: FeishuMessageEvent
-  /** Present on the one-time URL-verification handshake instead of `event`. */
+  /** v1 handshake: the value to echo back. */
   readonly challenge?: string
+  /** v1 handshake: the app's Verification Token. */
   readonly token?: string
+  /** v1 handshake: `url_verification`. */
   readonly type?: string
+}
+
+/**
+ * Read the handshake challenge from either wire form.
+ * @param callback - the parsed envelope.
+ * @returns the challenge to echo, or `undefined` when this is not a handshake.
+ */
+export function verificationChallenge (callback: FeishuCallback): string | undefined {
+  if (callback.type === 'url_verification' || callback.header?.event_type === 'url_verification') {
+    return callback.challenge ?? callback.event?.challenge ?? ''
+  }
+  // A bare `challenge` with no declared type is still a handshake.
+  return callback.challenge ?? callback.event?.challenge
+}
+
+/**
+ * Read the Verification Token from either wire form.
+ * @param callback - the parsed envelope.
+ * @returns the presented token, or `undefined` when absent.
+ */
+export function verificationToken (callback: FeishuCallback): string | undefined {
+  return callback.token ?? callback.event?.token
 }
 
 /** A message normalized into the fields the adapter acts on. */

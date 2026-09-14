@@ -14,6 +14,31 @@ its **signature**, not by the browser session that guards `/api`, so neither sit
 behind the connection trust fence — that is deliberate, and it is why signature
 verification is on by default.
 
+## How a message becomes a reply
+
+`webhookRuntime` is **not** used. It is fire-and-forget: a rule returns a Session
+request, the runtime creates the Session, and nothing ever reports what the agent
+said — so it cannot drive a reply back to the chat. This adapter owns the round
+trip itself:
+
+```
+callback -> verify signature -> decrypt -> normalize
+         -> Agent (one per conversation, reused across messages)
+         -> followup() -> whenIdle() -> read the assistant text from the log
+         -> send to Feishu
+```
+
+Two details make the reply correct rather than merely plausible:
+
+- **The log offset is captured *before* `followup`**, and the reply is read from
+  exactly that turn. Accumulating a live stream would instead be vulnerable to
+  attaching too late.
+- **The last** `assistant/message` **in the turn wins.** A turn may contain
+  several steps; the final one carries the user-facing answer.
+
+Prompts are **serialized per conversation**: two messages racing into one Agent
+would make the second arrive as steering and merge both replies into one turn.
+
 ## What works today
 
 - **Signature verification** — `X-Lark-Signature` is `SHA256(timestamp + nonce +
@@ -29,8 +54,10 @@ verification is on by default.
 - **Mention handling** — group messages are accepted only when the bot is
   mentioned. `mentions[].id` is an **object** carrying `open_id`; the bot's own
   placeholder token (`@_user_1`) is stripped from the text.
-- **Dispatch** — each accepted message becomes one `kind: 'im'` delivery on the
-  webhook runtime.
+- **Session continuity** — a conversation key (bot + chat + thread) maps to one
+  live Agent, so a follow-up continues the same Session instead of starting over.
+- **Reply delivery** — the assistant's text is sent back to the originating chat,
+  truncated at `maxReplyChars` rather than rejected by the API.
 
 ## Configuration
 
@@ -46,6 +73,11 @@ stays credential-free and safe to commit:
 | `appIdRef` / `appSecretRef` | `DSH_IM_APP_ID_REF` / `DSH_IM_APP_SECRET_REF` | App credentials for token exchanges |
 | `botOpenId` | `DSH_IM_BOT_OPEN_ID` | The bot's own `open_id` — **required for group chats** |
 | `maxBodyBytes` | — | Raw body ceiling (default 1 MiB) |
+| `botId` | `DSH_IM_BOT_ID` | Scopes conversation keys (default `feishu`); two bots never share a Session |
+| `workspacePath` | `DSH_IM_WORKSPACE` | Absolute working directory for created Sessions |
+| `agentPreset` | `DSH_IM_AGENT_PRESET` | Agent composition mounted per Session (default `standard`) |
+| `permissionPreset` | `DSH_IM_PERMISSION_PRESET` | Permission preset per Session (default `default`) |
+| `maxReplyChars` | — | Reply ceiling before truncation (default 4000) |
 
 Credential refs must be shell-style identifiers (`FEISHU_ENCRYPT_KEY`), not
 hyphenated names; a name outside that grammar is reported as a warning and
@@ -58,13 +90,23 @@ does not reveal which bot received it. Without `botOpenId` every group message i
 discarded (a group message that does not mention the bot is not for us). Direct
 (p2p) chats work without it.
 
-## Runtime dependencies
+## Dependencies
 
-`webhookRuntime` and `credentials` are resolved with `ctx.get`, **not** declared
-in `inject`. No shipped bundle composes the webhook runtime, so injecting it
-would park this plugin in PENDING and `apply` would never run — the routes would
-never register. When the runtime is absent, messages are acknowledged (so Feishu
-stops retrying) and a warning is logged once.
+Only `webServer` is a hard dependency. Everything else is optional, because the
+callback route must answer even in a profile that lacks the rest:
+
+- `credentials` is resolved with `ctx.get`.
+- The **Agent stack** (`agents`, `agentPresets`, `agentDefaultModel`,
+  `permissionPresets`, `sessionTitle`, `workspaceRegistry`) is requested with
+  `ctx.inject`, which **parks its callback** until every service exists instead of
+  blocking `apply`. So the routes always register, and the dispatcher is built
+  lazily on the first message — by which point both the stack and the API client
+  are ready. When the stack is absent, messages are acknowledged (so Feishu stops
+  retrying) and a warning is logged once.
+
+A hard `inject` on the Agent stack would be wrong twice over: the routes would
+vanish from a profile without an agent loop, and no shipped bundle guarantees
+that every one of those services is mounted.
 
 ## Install
 

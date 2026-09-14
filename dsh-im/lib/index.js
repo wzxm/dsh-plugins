@@ -1,7 +1,350 @@
+import { isAbsolute } from "node:path";
 import { credentialRef, isCredentialRefName } from "@deepseek-ai/dsh-credentials";
-import { WebhookDeliveryId, WebhookSourceId } from "@deepseek-ai/dsh-webhook";
 import z from "@deepseek-ai/schemastery";
+import { brandString } from "@deepseek-ai/dsh-brand";
+import { boundContextSummary, createUserMessage } from "@deepseek-ai/dsh-llm";
+import { SessionSeq } from "@deepseek-ai/dsh-session";
 import { createDecipheriv, createHash, timingSafeEqual } from "node:crypto";
+//#region src/feishu-api.ts
+/** Refresh an app token this long before its stated expiry. */
+const TOKEN_REFRESH_SKEW_MS = 6e4;
+/** Read a non-empty string field, or throw naming the endpoint that omitted it. */
+function requiredString(record, field, where) {
+	const value = record[field];
+	if (typeof value !== "string" || value === "") throw new Error(`feishu ${where} response is missing "${field}"`);
+	return value;
+}
+/**
+* Create a Feishu client.
+* @param credentials - the app id/secret pair used for app tokens.
+* @param fetcher - HTTP implementation; injectable for tests.
+* @param baseUrl - API host, overridable to target Lark's international host.
+* @param now - clock, injectable so token-expiry behaviour is testable.
+* @returns the client.
+*/
+function createFeishuApi(credentials, fetcher = fetch, baseUrl = "https://open.feishu.cn", now = () => Date.now()) {
+	let cachedAppToken;
+	let cachedTenantToken;
+	/** Epoch-ms instant a token with `expiresIn` seconds stops being usable. */
+	const usableUntil = (expiresIn) => {
+		const lifetimeSeconds = typeof expiresIn === "number" ? expiresIn : 7200;
+		return now() + Math.max(0, lifetimeSeconds * 1e3 - TOKEN_REFRESH_SKEW_MS);
+	};
+	const request = async (path, init, where) => {
+		const response = await fetcher(`${baseUrl}${path}`, init);
+		let body;
+		try {
+			body = await response.json();
+		} catch {
+			throw new Error(`feishu ${where} returned a non-JSON response (HTTP ${response.status})`);
+		}
+		const record = typeof body === "object" && body !== null && !Array.isArray(body) ? body : {};
+		if (!response.ok || record["code"] !== 0) throw new Error(`feishu ${where} failed: ${String(record["msg"] ?? response.status)}`);
+		return record;
+	};
+	const mintAppToken = async () => {
+		const body = await request("/open-apis/auth/v3/app_access_token/internal", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app_id: credentials.appId,
+				app_secret: credentials.appSecret
+			})
+		}, "app_access_token");
+		const token = requiredString(body, "app_access_token", "app_access_token");
+		cachedAppToken = {
+			token,
+			usableUntil: usableUntil(body["expire"])
+		};
+		return token;
+	};
+	const appToken = async () => {
+		if (cachedAppToken !== void 0 && now() < cachedAppToken.usableUntil) return cachedAppToken.token;
+		return mintAppToken();
+	};
+	const tenantToken = async () => {
+		if (cachedTenantToken !== void 0 && now() < cachedTenantToken.usableUntil) return cachedTenantToken.token;
+		const body = await request("/open-apis/auth/v3/tenant_access_token/internal", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app_id: credentials.appId,
+				app_secret: credentials.appSecret
+			})
+		}, "tenant_access_token");
+		const token = requiredString(body, "tenant_access_token", "tenant_access_token");
+		cachedTenantToken = {
+			token,
+			usableUntil: usableUntil(body["expire"])
+		};
+		return token;
+	};
+	return {
+		tenantToken,
+		async authorize(code) {
+			const bearer = await appToken();
+			const data = (await request("/open-apis/authen/v1/oidc/access_token", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${bearer}`,
+					"content-type": "application/json"
+				},
+				body: JSON.stringify({
+					grant_type: "authorization_code",
+					code
+				})
+			}, "oidc/access_token"))["data"];
+			if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("feishu oidc/access_token response is missing \"data\"");
+			const record = data;
+			const botOpenId = requiredString(record, "open_id", "oidc/access_token");
+			return {
+				tenantAccessToken: await tenantToken(),
+				userAccessToken: requiredString(record, "access_token", "oidc/access_token"),
+				botOpenId,
+				botName: typeof record["name"] === "string" && record["name"] !== "" ? record["name"] : botOpenId,
+				...typeof record["tenant_name"] === "string" ? { tenantName: record["tenant_name"] } : {}
+			};
+		},
+		async sendText(token, target, text, replyTo) {
+			const content = JSON.stringify({ text });
+			await request(replyTo === void 0 ? `/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(target.receiveIdType)}` : `/open-apis/im/v1/messages/${encodeURIComponent(replyTo)}/reply`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${token}`,
+					"content-type": "application/json"
+				},
+				body: JSON.stringify(replyTo === void 0 ? {
+					receive_id: target.receiveId,
+					msg_type: "text",
+					content
+				} : {
+					msg_type: "text",
+					content
+				})
+			}, "im/v1/messages");
+		}
+	};
+}
+//#endregion
+//#region src/feishu.ts
+/**
+* Derive the reply destination for one message.
+*
+* A p2p chat is answered to the sender's `open_id`; a group chat is answered to
+* the `chat_id`. The `chat_id` is used even when a group message arrives in a
+* thread, because Feishu threads are addressed through `reply_message` rather
+* than a different receive id.
+* @param message - the normalized inbound message.
+* @returns the receive-id type and value to send with.
+* @throws {Error} when the fields needed for that chat type are missing.
+*/
+function receiveTarget(message) {
+	if (message.chatType === "p2p") {
+		if (message.senderOpenId === "") throw new Error("cannot reply to a p2p message without the sender open_id");
+		return {
+			receiveIdType: "open_id",
+			receiveId: message.senderOpenId
+		};
+	}
+	return {
+		receiveIdType: "chat_id",
+		receiveId: message.chatId
+	};
+}
+/**
+* Build the stable identity for one conversation.
+*
+* Scoping by bot keeps two apps that share a chat from writing into the same
+* Session. The thread segment separates a threaded discussion from the chat's
+* main timeline, so a `@bot` in a thread does not append to the parent Session.
+* @param botId - the configured bot instance id.
+* @param message - the normalized inbound message.
+* @returns the conversation key.
+*/
+function conversationKey(botId, message) {
+	return [
+		botId,
+		message.chatType,
+		message.chatId,
+		message.threadId ?? message.parentId ?? "root"
+	].join(":");
+}
+//#endregion
+//#region src/session-bridge.ts
+/**
+* Extract the assistant's reply for the turn that started at `fromSeq`.
+*
+* Only events at or after `fromSeq` are considered, so a continuing
+* conversation returns this turn's answer rather than the previous one. The
+* **last** `assistant/message` wins: a turn may contain several steps, and the
+* final one carries the user-facing reply.
+*
+* @param session - the live session whose log is read.
+* @param fromSeq - log offset captured before the prompt was submitted.
+* @returns the turn's text, end reason, and interruption flag.
+*/
+function readTurnOutput(session, fromSeq) {
+	let text = "";
+	let reason;
+	let interrupted = false;
+	let started = false;
+	const length = session.seq;
+	for (let seq = fromSeq; seq < length; seq += 1) {
+		const event = session.eventAt(SessionSeq(seq));
+		if (event === void 0) continue;
+		if (event.type === "turn/start") {
+			started = true;
+			continue;
+		}
+		if (!started) continue;
+		if (event.type === "assistant/message") {
+			const joined = event.data.message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
+			if (joined !== "") text = joined;
+			if (event.data.interrupted === true) interrupted = true;
+		}
+		if (event.type === "turn/end") reason = event.data.reason.kind;
+	}
+	return {
+		text,
+		reason,
+		interrupted
+	};
+}
+/**
+* Serializes prompts per conversation.
+*
+* Two messages arriving close together must not interleave into one Agent: the
+* second would be consumed as steering for the first turn, and its reply would
+* be read as part of the same turn. A per-key promise chain makes each prompt
+* wait for the previous one to settle.
+*/
+var ConversationQueue = class {
+	tails = /* @__PURE__ */ new Map();
+	/**
+	* Run `task` after every previously queued task for `key` has settled.
+	* @param key - the conversation key.
+	* @param task - the work to serialize.
+	* @returns the task's result.
+	*/
+	run(key, task) {
+		const next = (this.tails.get(key) ?? Promise.resolve()).then(task, task);
+		const tail = next.then(() => void 0, () => void 0);
+		this.tails.set(key, tail);
+		tail.then(() => {
+			if (this.tails.get(key) === tail) this.tails.delete(key);
+		});
+		return next;
+	}
+	/** Number of tracked conversations; for tests and diagnostics. */
+	get size() {
+		return this.tails.size;
+	}
+};
+//#endregion
+//#region src/dispatch.ts
+/**
+* Truncate a reply so an overlong answer cannot be rejected by the Feishu API.
+* @param text - the assistant text.
+* @param max - character ceiling.
+* @returns the text, ellipsized when it exceeded the ceiling.
+*/
+function truncate(text, max) {
+	if (text.length <= max) return text;
+	return `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+/**
+* Build the dispatcher that turns messages into turns and replies.
+* @param ctx - plugin-scoped context that owns created Agents.
+* @param config - resolved dispatch configuration.
+* @param api - Feishu client used to send the reply.
+* @returns a function handling one normalized message.
+*/
+function createDispatcher(ctx, config, api) {
+	const queue = new ConversationQueue();
+	/** Live Agents by conversation key. The binding is the Session continuity. */
+	const agents = /* @__PURE__ */ new Map();
+	/**
+	* Create one Agent for a conversation.
+	*
+	* A deterministic session id derived from the conversation key means a restart
+	* with persistence enabled resumes the same Session instead of forking a new
+	* one per process.
+	* @param key - conversation key.
+	* @param title - initial Session title.
+	* @returns the live Agent.
+	*/
+	const openAgent = async (key, title) => {
+		ctx.permissionPresets.resolve(config.permissionPreset);
+		const preset = await ctx.agentPresets.resolve(config.agentPreset);
+		await ctx.agentPresets.standingKeyFor(preset.id);
+		const workspace = await ctx.workspaceRegistry.create(config.workspacePath);
+		const selected = ctx.agentDefaultModel.currentSelection();
+		const sessionId = brandString(`im-${config.botId}-${key}`.replace(/[^A-Za-z0-9._-]/g, "_"));
+		const handle = await ctx.agents.create({
+			sessionId,
+			meta: {
+				cwd: workspace.path,
+				agentPreset: preset.id
+			},
+			agentOptions: {
+				provider: selected.provider,
+				model: selected.model
+			},
+			setup: async (agentCtx) => {
+				await ctx.agentPresets.mount(agentCtx, preset.id);
+			}
+		});
+		await workspace.attachSession(sessionId);
+		ctx.permissionPresets.set(handle.agent.session, config.permissionPreset);
+		ctx.sessionTitle.rename(handle.agent.session, title);
+		agents.set(key, handle.agent);
+		return handle.agent;
+	};
+	/**
+	* Ask one Agent for a reply.
+	*
+	* The log offset is captured **before** `followup`, so the reply is read from
+	* exactly this turn rather than the previous exchange. `whenIdle()` is the
+	* settlement signal: it resolves once no driver or maintenance task remains,
+	* which is the point at which the log is complete.
+	* @param agent - the live Agent.
+	* @param prompt - the user's text.
+	* @returns this turn's output.
+	*/
+	const ask = async (agent, prompt) => {
+		const fromSeq = agent.session.seq;
+		agent.followup(createUserMessage({
+			content: [{
+				type: "text",
+				text: prompt
+			}],
+			source: {
+				kind: "plugin",
+				plugin: "dsh-im",
+				form: "notice",
+				summary: boundContextSummary(`Feishu message via ${config.botId}`)
+			}
+		}));
+		await agent.whenIdle();
+		return readTurnOutput(agent.session, fromSeq);
+	};
+	return async (message) => {
+		const key = conversationKey(config.botId, message);
+		return queue.run(key, async () => {
+			let agent = agents.get(key);
+			if (agent === void 0) agent = await openAgent(key, `Feishu ${message.chatType} ${message.chatId}`);
+			const output = await ask(agent, message.text);
+			if (output.text.trim() === "") return {
+				replied: false,
+				reason: output.reason ?? "no assistant text"
+			};
+			const token = await api.tenantToken();
+			await api.sendText(token, receiveTarget(message), truncate(output.text, config.maxReplyChars));
+			return { replied: true };
+		});
+	};
+}
+//#endregion
 //#region src/body.ts
 /** HTTP refusal whose message is safe to return to the sender verbatim. */
 var CallbackHttpError = class extends Error {
@@ -103,6 +446,23 @@ function decryptFeishuEvent(encrypted, encryptKey) {
 }
 //#endregion
 //#region src/event.ts
+/**
+* Read the handshake challenge from either wire form.
+* @param callback - the parsed envelope.
+* @returns the challenge to echo, or `undefined` when this is not a handshake.
+*/
+function verificationChallenge(callback) {
+	if (callback.type === "url_verification" || callback.header?.event_type === "url_verification") return callback.challenge ?? callback.event?.challenge ?? "";
+	return callback.challenge ?? callback.event?.challenge;
+}
+/**
+* Read the Verification Token from either wire form.
+* @param callback - the parsed envelope.
+* @returns the presented token, or `undefined` when absent.
+*/
+function verificationToken(callback) {
+	return callback.token ?? callback.event?.token;
+}
 /** Whether `value` is a non-array object. */
 function isRecord(value) {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -339,9 +699,11 @@ function createFeishuHandler(_ctx, config) {
 			} catch {
 				throw new CallbackHttpError(400, "callback body is not a valid JSON object");
 			}
-			if (callback.type === "url_verification" || callback.challenge !== void 0) {
-				if (config.verificationToken !== void 0 && config.verificationToken !== "" && callback.token !== config.verificationToken) throw new CallbackHttpError(401, "invalid verification token");
-				respondJson(response, 200, { challenge: callback.challenge ?? "" });
+			const challenge = verificationChallenge(callback);
+			if (challenge !== void 0) {
+				const presented = verificationToken(callback);
+				if (config.verificationToken !== void 0 && config.verificationToken !== "" && presented !== config.verificationToken) throw new CallbackHttpError(401, "invalid verification token");
+				respondJson(response, 200, { challenge });
 				return;
 			}
 			const message = normalizeCallback(callback, config.botOpenId);
@@ -358,171 +720,6 @@ function createFeishuHandler(_ctx, config) {
 			}
 			_ctx.logger.warn("dsh-im: callback handling failed");
 			respond(response, 500, "callback handling failed");
-		}
-	};
-}
-//#endregion
-//#region src/feishu.ts
-/**
-* Derive the reply destination for one message.
-*
-* A p2p chat is answered to the sender's `open_id`; a group chat is answered to
-* the `chat_id`. The `chat_id` is used even when a group message arrives in a
-* thread, because Feishu threads are addressed through `reply_message` rather
-* than a different receive id.
-* @param message - the normalized inbound message.
-* @returns the receive-id type and value to send with.
-* @throws {Error} when the fields needed for that chat type are missing.
-*/
-function receiveTarget(message) {
-	if (message.chatType === "p2p") {
-		if (message.senderOpenId === "") throw new Error("cannot reply to a p2p message without the sender open_id");
-		return {
-			receiveIdType: "open_id",
-			receiveId: message.senderOpenId
-		};
-	}
-	return {
-		receiveIdType: "chat_id",
-		receiveId: message.chatId
-	};
-}
-/**
-* Build the stable identity for one conversation.
-*
-* Scoping by bot keeps two apps that share a chat from writing into the same
-* Session. The thread segment separates a threaded discussion from the chat's
-* main timeline, so a `@bot` in a thread does not append to the parent Session.
-* @param botId - the configured bot instance id.
-* @param message - the normalized inbound message.
-* @returns the conversation key.
-*/
-function conversationKey(botId, message) {
-	return [
-		botId,
-		message.chatType,
-		message.chatId,
-		message.threadId ?? message.parentId ?? "root"
-	].join(":");
-}
-//#endregion
-//#region src/feishu-api.ts
-/** Refresh an app token this long before its stated expiry. */
-const TOKEN_REFRESH_SKEW_MS = 6e4;
-/** Read a non-empty string field, or throw naming the endpoint that omitted it. */
-function requiredString(record, field, where) {
-	const value = record[field];
-	if (typeof value !== "string" || value === "") throw new Error(`feishu ${where} response is missing "${field}"`);
-	return value;
-}
-/**
-* Create a Feishu client.
-* @param credentials - the app id/secret pair used for app tokens.
-* @param fetcher - HTTP implementation; injectable for tests.
-* @param baseUrl - API host, overridable to target Lark's international host.
-* @param now - clock, injectable so token-expiry behaviour is testable.
-* @returns the client.
-*/
-function createFeishuApi(credentials, fetcher = fetch, baseUrl = "https://open.feishu.cn", now = () => Date.now()) {
-	let cachedAppToken;
-	let cachedTenantToken;
-	/** Epoch-ms instant a token with `expiresIn` seconds stops being usable. */
-	const usableUntil = (expiresIn) => {
-		const lifetimeSeconds = typeof expiresIn === "number" ? expiresIn : 7200;
-		return now() + Math.max(0, lifetimeSeconds * 1e3 - TOKEN_REFRESH_SKEW_MS);
-	};
-	const request = async (path, init, where) => {
-		const response = await fetcher(`${baseUrl}${path}`, init);
-		let body;
-		try {
-			body = await response.json();
-		} catch {
-			throw new Error(`feishu ${where} returned a non-JSON response (HTTP ${response.status})`);
-		}
-		const record = typeof body === "object" && body !== null && !Array.isArray(body) ? body : {};
-		if (!response.ok || record["code"] !== 0) throw new Error(`feishu ${where} failed: ${String(record["msg"] ?? response.status)}`);
-		return record;
-	};
-	const mintAppToken = async () => {
-		const body = await request("/open-apis/auth/v3/app_access_token/internal", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				app_id: credentials.appId,
-				app_secret: credentials.appSecret
-			})
-		}, "app_access_token");
-		const token = requiredString(body, "app_access_token", "app_access_token");
-		cachedAppToken = {
-			token,
-			usableUntil: usableUntil(body["expire"])
-		};
-		return token;
-	};
-	const appToken = async () => {
-		if (cachedAppToken !== void 0 && now() < cachedAppToken.usableUntil) return cachedAppToken.token;
-		return mintAppToken();
-	};
-	const tenantToken = async () => {
-		if (cachedTenantToken !== void 0 && now() < cachedTenantToken.usableUntil) return cachedTenantToken.token;
-		const body = await request("/open-apis/auth/v3/tenant_access_token/internal", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				app_id: credentials.appId,
-				app_secret: credentials.appSecret
-			})
-		}, "tenant_access_token");
-		const token = requiredString(body, "tenant_access_token", "tenant_access_token");
-		cachedTenantToken = {
-			token,
-			usableUntil: usableUntil(body["expire"])
-		};
-		return token;
-	};
-	return {
-		tenantToken,
-		async authorize(code) {
-			const bearer = await appToken();
-			const data = (await request("/open-apis/authen/v1/oidc/access_token", {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${bearer}`,
-					"content-type": "application/json"
-				},
-				body: JSON.stringify({
-					grant_type: "authorization_code",
-					code
-				})
-			}, "oidc/access_token"))["data"];
-			if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("feishu oidc/access_token response is missing \"data\"");
-			const record = data;
-			const botOpenId = requiredString(record, "open_id", "oidc/access_token");
-			return {
-				tenantAccessToken: await tenantToken(),
-				userAccessToken: requiredString(record, "access_token", "oidc/access_token"),
-				botOpenId,
-				botName: typeof record["name"] === "string" && record["name"] !== "" ? record["name"] : botOpenId,
-				...typeof record["tenant_name"] === "string" ? { tenantName: record["tenant_name"] } : {}
-			};
-		},
-		async sendText(token, target, text, replyTo) {
-			const content = JSON.stringify({ text });
-			await request(replyTo === void 0 ? `/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(target.receiveIdType)}` : `/open-apis/im/v1/messages/${encodeURIComponent(replyTo)}/reply`, {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${token}`,
-					"content-type": "application/json"
-				},
-				body: JSON.stringify(replyTo === void 0 ? {
-					receive_id: target.receiveId,
-					msg_type: "text",
-					content
-				} : {
-					msg_type: "text",
-					content
-				})
-			}, "im/v1/messages");
 		}
 	};
 }
@@ -601,6 +798,8 @@ const inject = ["webServer"];
 function assertConfig(config) {
 	for (const [field, value] of [["callbackPath", config.callbackPath], ["oauthCallbackPath", config.oauthCallbackPath]]) if (!value.startsWith("/") || value === "/" || value.endsWith("/") || value.includes("?") || value.includes("#")) throw new Error(`dsh-im ${field} must be an absolute non-root pathname without a trailing slash, query, or fragment`);
 	if (config.callbackPath === config.oauthCallbackPath) throw new Error("dsh-im callbackPath and oauthCallbackPath must differ");
+	if (config.workspacePath !== void 0 && config.workspacePath !== "" && !isAbsolute(config.workspacePath)) throw new Error(`dsh-im workspacePath must be an absolute path, got ${JSON.stringify(config.workspacePath)}`);
+	if (config.maxReplyChars !== void 0 && config.maxReplyChars < 1) throw new Error("dsh-im maxReplyChars must be at least 1");
 }
 /**
 * The declared configuration.
@@ -618,6 +817,11 @@ const Config = z.object({
 	appIdRef: z.string().default(""),
 	appSecretRef: z.string().default(""),
 	botOpenId: z.string().default(""),
+	botId: z.string().default("feishu"),
+	workspacePath: z.string().default(""),
+	agentPreset: z.string().default("standard"),
+	permissionPreset: z.string().default("default"),
+	maxReplyChars: z.natural().default(4e3),
 	maxBodyBytes: z.natural().default(1048576)
 });
 /**
@@ -656,32 +860,39 @@ function apply(ctx, config) {
 	let verificationToken;
 	/** Fixed at activation; a changed open_id needs a plugin reload anyway. */
 	const botOpenId = resolved.botOpenId;
-	/** Set once the missing-runtime warning has been logged. */
-	let warnedNoRuntime = false;
+	/** Set once the dispatcher is wired by the Agent-stack injection below. */
+	let dispatch;
+	/** Set once the app credentials resolve into a usable API client. */
+	let api;
+	/** The Agent stack context, supplied by `ctx.inject` when those services exist. */
+	let agentStack;
+	/** Logged once each, so a busy callback cannot flood the log. */
+	let warnedNoStack = false;
+	let warnedNoApi = false;
 	const onMessage = async (message) => {
-		const runtime = ctx.get("webhookRuntime");
-		if (runtime === void 0) {
-			if (!warnedNoRuntime) {
-				warnedNoRuntime = true;
-				ctx.logger.warn("dsh-im: no webhook runtime is mounted, so inbound Feishu messages are acknowledged but never turned into Sessions; compose @deepseek-ai/dsh-webhook");
+		if (agentStack === void 0) {
+			if (!warnedNoStack) {
+				warnedNoStack = true;
+				ctx.logger.warn("dsh-im: the Agent stack is not mounted, so inbound Feishu messages are acknowledged but never answered; compose an agent loop, agent presets, permission presets, session-title, and the workspace registry");
 			}
 			return;
 		}
-		runtime.dispatch({
-			kind: "im",
-			source: WebhookSourceId(name),
-			deliveryId: WebhookDeliveryId(message.eventId),
-			event: {
-				provider: "feishu",
-				chatType: message.chatType,
-				chatId: message.chatId,
-				senderOpenId: message.senderOpenId,
-				text: message.text,
-				...message.threadId === void 0 ? {} : { threadId: message.threadId },
-				...message.parentId === void 0 ? {} : { parentId: message.parentId }
-			},
-			receivedAt: Date.now()
-		});
+		if (api === void 0) {
+			if (!warnedNoApi) {
+				warnedNoApi = true;
+				ctx.logger.warn("dsh-im: no Feishu app credentials are configured, so replies cannot be sent; set appIdRef and appSecretRef");
+			}
+			return;
+		}
+		dispatch ??= createDispatcher(agentStack, {
+			botId: resolved.botId,
+			workspacePath: resolved.workspacePath,
+			agentPreset: resolved.agentPreset,
+			permissionPreset: resolved.permissionPreset,
+			maxReplyChars: resolved.maxReplyChars
+		}, api);
+		const result = await dispatch(message);
+		if (!result.replied) ctx.logger.info(`dsh-im: no reply for ${message.eventId} (${result.reason ?? "unknown"})`);
 	};
 	const handler = createFeishuHandler(ctx, {
 		get encryptKey() {
@@ -710,10 +921,34 @@ function apply(ctx, config) {
 			res.end("OAuth callback is not wired to a bot store yet");
 		}
 	}), `dsh-im: ${resolved.oauthCallbackPath}`);
+	/**
+	* Wire the dispatcher once the Agent stack exists.
+	*
+	* `ctx.inject` (rather than a hard `inject` on this plugin) keeps route
+	* registration independent of the Agent stack: the callback route must answer
+	* in a profile that has no agent loop, and the ordering between this plugin
+	* and the bundle rows providing these services is not guaranteed.
+	*/
+	ctx.inject([
+		"agents",
+		"agentPresets",
+		"agentDefaultModel",
+		"permissionPresets",
+		"sessionTitle",
+		"workspaceRegistry"
+	], (agentCtx) => {
+		agentStack = agentCtx;
+	});
 	(async () => {
 		try {
 			encryptKey = await resolveSecret(ctx, resolved.encryptKeyRef);
 			verificationToken = await resolveSecret(ctx, resolved.verificationTokenRef);
+			const appId = await resolveSecret(ctx, resolved.appIdRef);
+			const appSecret = await resolveSecret(ctx, resolved.appSecretRef);
+			if (appId !== void 0 && appSecret !== void 0) api = createFeishuApi({
+				appId,
+				appSecret
+			});
 		} catch (error) {
 			ctx.logger.warn(error instanceof Error ? error : new Error(String(error)));
 		}
@@ -726,6 +961,6 @@ var src_default = {
 	apply
 };
 //#endregion
-export { BotStore, Config, QuickOnboarding, apply, conversationKey, createFeishuApi, decryptFeishuEvent, src_default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, receiveTarget, stripBotMentions, verifyFeishuSignature };
+export { BotStore, Config, ConversationQueue, QuickOnboarding, apply, conversationKey, createDispatcher, createFeishuApi, decryptFeishuEvent, src_default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, readTurnOutput, receiveTarget, stripBotMentions, verificationChallenge, verificationToken, verifyFeishuSignature };
 
 //# sourceMappingURL=index.js.map

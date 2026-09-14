@@ -24,7 +24,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { CallbackHttpError, readBoundedUtf8Body } from './body.ts'
 import { decryptFeishuEvent } from './decrypt.ts'
-import { normalizeCallback, parseCallback, type NormalizedMessage } from './event.ts'
+import {
+  normalizeCallback,
+  parseCallback,
+  verificationChallenge,
+  verificationToken,
+  type NormalizedMessage,
+} from './event.ts'
 import { verifyFeishuSignature } from './signature.ts'
 
 /** Resolved ingress configuration for one bot instance. */
@@ -156,13 +162,17 @@ export function createFeishuHandler (
       }
 
       // The one-time URL verification handshake: echo the challenge back and
-      // stop. It is not an event and must never create a delivery.
-      if (callback.type === 'url_verification' || callback.challenge !== undefined) {
+      // stop. It is not an event and must never create a delivery. The challenge
+      // is read from both the v1 (flat) and v2.0 (envelope) wire forms, because
+      // Feishu uses each depending on the app's subscription configuration.
+      const challenge = verificationChallenge(callback)
+      if (challenge !== undefined) {
+        const presented = verificationToken(callback)
         if (config.verificationToken !== undefined && config.verificationToken !== ''
-          && callback.token !== config.verificationToken) {
+          && presented !== config.verificationToken) {
           throw new CallbackHttpError(401, 'invalid verification token')
         }
-        respondJson(response, 200, { challenge: callback.challenge ?? '' })
+        respondJson(response, 200, { challenge })
         return
       }
 

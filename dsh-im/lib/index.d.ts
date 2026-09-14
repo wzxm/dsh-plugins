@@ -1,4 +1,5 @@
 import z from "@deepseek-ai/schemastery";
+import { Session } from "@deepseek-ai/dsh-session";
 import { Context } from "@deepseek-ai/cordis";
 //#region src/event.d.ts
 /**
@@ -76,6 +77,12 @@ interface FeishuMessageEvent {
     readonly sender_type?: string;
   };
   readonly message?: FeishuMessage;
+  /**
+   * Present on the v2.0 URL-verification handshake, where the challenge sits
+   * inside `event` rather than at the envelope's top level.
+   */
+  readonly challenge?: string;
+  readonly token?: string;
 }
 /** The `header` object of a v2.0 envelope. */
 interface FeishuEventHeader {
@@ -85,16 +92,43 @@ interface FeishuEventHeader {
   readonly tenant_key?: string;
   readonly app_id?: string;
 }
-/** A parsed v2.0 event callback. */
+/**
+ * A parsed event callback, covering both wire forms Feishu uses.
+ *
+ * Feishu sends the handshake in **two** shapes and both must be handled:
+ *
+ * - **v1 (flat)** — `{"type":"url_verification","challenge":"…","token":"…"}`,
+ *   with the fields at the top level.
+ * - **v2.0 (envelope)** — `{"schema":"2.0","header":{"event_type":
+ *   "url_verification"},"event":{"challenge":"…"}}`, with the fields nested.
+ *
+ * Reading only the top-level form (as an earlier version of the handler did)
+ * answers a real v2.0 handshake with an empty body, and the Feishu console then
+ * reports the URL as unreachable — the app never finishes setup.
+ */
 interface FeishuCallback {
   readonly schema?: string;
   readonly header?: FeishuEventHeader;
   readonly event?: FeishuMessageEvent;
-  /** Present on the one-time URL-verification handshake instead of `event`. */
+  /** v1 handshake: the value to echo back. */
   readonly challenge?: string;
+  /** v1 handshake: the app's Verification Token. */
   readonly token?: string;
+  /** v1 handshake: `url_verification`. */
   readonly type?: string;
 }
+/**
+ * Read the handshake challenge from either wire form.
+ * @param callback - the parsed envelope.
+ * @returns the challenge to echo, or `undefined` when this is not a handshake.
+ */
+declare function verificationChallenge(callback: FeishuCallback): string | undefined;
+/**
+ * Read the Verification Token from either wire form.
+ * @param callback - the parsed envelope.
+ * @returns the presented token, or `undefined` when absent.
+ */
+declare function verificationToken(callback: FeishuCallback): string | undefined;
 /** A message normalized into the fields the adapter acts on. */
 interface NormalizedMessage {
   /** Stable event identity, used as the delivery id. */
@@ -299,6 +333,86 @@ declare function verifyFeishuSignature(raw: string, timestamp: string, nonce: st
  */
 declare function decryptFeishuEvent(encrypted: string, encryptKey: string): string;
 //#endregion
+//#region src/session-bridge.d.ts
+/** The assistant text and outcome of one turn. */
+interface TurnOutput {
+  /** Concatenated text of the last assistant message in the turn, or `''`. */
+  readonly text: string;
+  /** The `kind` of the turn's end reason, when a `turn/end` was observed. */
+  readonly reason: string | undefined;
+  /** Whether the turn was interrupted before producing visible content. */
+  readonly interrupted: boolean;
+}
+/**
+ * Extract the assistant's reply for the turn that started at `fromSeq`.
+ *
+ * Only events at or after `fromSeq` are considered, so a continuing
+ * conversation returns this turn's answer rather than the previous one. The
+ * **last** `assistant/message` wins: a turn may contain several steps, and the
+ * final one carries the user-facing reply.
+ *
+ * @param session - the live session whose log is read.
+ * @param fromSeq - log offset captured before the prompt was submitted.
+ * @returns the turn's text, end reason, and interruption flag.
+ */
+declare function readTurnOutput(session: Session, fromSeq: number): TurnOutput;
+/** One live binding between a conversation key and its Agent. */
+interface ConversationBinding {
+  /** Session identity, for diagnostics and titles. */
+  readonly sessionId: string;
+  /** Submit one prompt and resolve with the turn's reply. */
+  ask(prompt: string): Promise<TurnOutput>;
+}
+/**
+ * Serializes prompts per conversation.
+ *
+ * Two messages arriving close together must not interleave into one Agent: the
+ * second would be consumed as steering for the first turn, and its reply would
+ * be read as part of the same turn. A per-key promise chain makes each prompt
+ * wait for the previous one to settle.
+ */
+declare class ConversationQueue {
+  private readonly tails;
+  /**
+   * Run `task` after every previously queued task for `key` has settled.
+   * @param key - the conversation key.
+   * @param task - the work to serialize.
+   * @returns the task's result.
+   */
+  run<T>(key: string, task: () => Promise<T>): Promise<T>;
+  /** Number of tracked conversations; for tests and diagnostics. */
+  get size(): number;
+}
+//#endregion
+//#region src/dispatch.d.ts
+/** Resolved configuration for one dispatch executor. */
+interface DispatcherConfig {
+  /** Bot instance id; scopes conversation keys so two bots never share a Session. */
+  readonly botId: string;
+  /** Working directory for Sessions created by this bot. */
+  readonly workspacePath: string;
+  /** Agent composition mounted for each new Session. */
+  readonly agentPreset: string;
+  /** Permission preset applied to each Session. */
+  readonly permissionPreset: string;
+  /** Ceiling on one reply, in characters, before truncation. */
+  readonly maxReplyChars: number;
+}
+/** The outcome of handling one message. */
+interface DispatchResult {
+  readonly replied: boolean;
+  /** Why no reply was sent, when `replied` is false. */
+  readonly reason?: string;
+}
+/**
+ * Build the dispatcher that turns messages into turns and replies.
+ * @param ctx - plugin-scoped context that owns created Agents.
+ * @param config - resolved dispatch configuration.
+ * @param api - Feishu client used to send the reply.
+ * @returns a function handling one normalized message.
+ */
+declare function createDispatcher(ctx: Context, config: DispatcherConfig, api: FeishuApi): (message: NormalizedMessage) => Promise<DispatchResult>;
+//#endregion
 //#region src/bot-store.d.ts
 interface BotRecord {
   id: string;
@@ -339,34 +453,6 @@ declare class QuickOnboarding {
   cancel(id: string): void;
 }
 //#endregion
-//#region src/webhook-types.d.ts
-/**
- * Feishu event values projected after signature verification.
- *
- * Declaring the `im` kind through module augmentation is what lets a
- * `WebhookRule<'im'>` receive a typed event instead of generic JSON, mirroring
- * how the GitHub adapter registers its own kind.
- *
- * @module dsh-im/webhook-types
- */
-declare module '@deepseek-ai/dsh-webhook' {
-  interface WebhookEventMap {
-    im: FeishuWebhookEvent;
-  }
-}
-/** Provider event supplied to `WebhookRule<'im'>`. */
-interface FeishuWebhookEvent {
-  /** Always `feishu`; distinguishes providers if another IM adapter shares the kind. */
-  readonly provider: 'feishu';
-  readonly chatType: 'p2p' | 'group';
-  readonly chatId: string;
-  readonly senderOpenId: string;
-  /** Message text with the bot's own mention placeholders removed. */
-  readonly text: string;
-  readonly threadId?: string;
-  readonly parentId?: string;
-}
-//#endregion
 //#region src/index.d.ts
 declare const name = "dsh-im";
 /**
@@ -400,6 +486,16 @@ interface Config {
    * it is required for group use even though p2p works without it.
    */
   botOpenId?: string;
+  /** Bot instance id; scopes conversation keys so two bots never share a Session. */
+  botId?: string;
+  /** Working directory for Sessions created by this bot. */
+  workspacePath?: string;
+  /** Agent composition mounted for each new Session. */
+  readonly agentPreset?: string;
+  /** Permission preset applied to each Session. */
+  permissionPreset?: string;
+  /** Ceiling on one reply, in characters, before truncation. */
+  maxReplyChars?: number;
   /** Raw callback body ceiling in bytes. */
   maxBodyBytes?: number;
 }
@@ -420,5 +516,5 @@ declare const _default: {
   apply: typeof apply;
 };
 //#endregion
-export { BotRecord, BotStore, Config, FeishuApi, FeishuCallback, FeishuCredentials, FeishuEventHeader, FeishuIdentity, FeishuMention, FeishuMessage, FeishuMessageEvent, type FeishuWebhookEvent, NormalizedMessage, QuickOnboarding, QuickSession, QuickState, ReplyTarget, apply, conversationKey, createFeishuApi, decryptFeishuEvent, _default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, receiveTarget, stripBotMentions, verifyFeishuSignature };
+export { BotRecord, BotStore, Config, ConversationBinding, ConversationQueue, DispatchResult, DispatcherConfig, FeishuApi, FeishuCallback, FeishuCredentials, FeishuEventHeader, FeishuIdentity, FeishuMention, FeishuMessage, FeishuMessageEvent, NormalizedMessage, QuickOnboarding, QuickSession, QuickState, ReplyTarget, TurnOutput, apply, conversationKey, createDispatcher, createFeishuApi, decryptFeishuEvent, _default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, readTurnOutput, receiveTarget, stripBotMentions, verificationChallenge, verificationToken, verifyFeishuSignature };
 //# sourceMappingURL=index.d.ts.map
