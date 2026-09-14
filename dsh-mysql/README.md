@@ -89,23 +89,60 @@ export DSH_MYSQL_ALLOW_TRUNCATE=false
 export DSH_MYSQL_ALLOW_DROP=false
 ```
 
-An enabled write still needs a one-shot approval: the plugin asks through `ctx.approval` and proceeds only on `allowed-once`. With no interactive answerer composed, the ask fails closed. A database account with matching MySQL grants is required as well.
+An enabled write still needs a one-shot approval: the plugin asks through the approval seam and proceeds only on `allowed-once`. A database account with matching MySQL grants is required as well.
 
 Three independent gates must all open for a write to run: the plugin's `DSH_MYSQL_ALLOW_*` toggle, the approval prompt, and the server-side `ALLOW_*_OPERATION` switch that the patch derives from the same toggle. A write permitted by the seam is still refused by the server if its switch is off.
 
 `DROP` and `TRUNCATE` should stay disabled unless the deployment has a dedicated high-risk approval answerer and database account.
 
+### With no approval service composed
+
+The plugin does **not** declare the approval service as a hard dependency; it resolves it with `ctx.get('approval')` at the point of use. That matters: declared as a hard dependency, Cordis would park this plugin in PENDING in a profile that composes no approval service, `apply` would never run, and **the write gate would not exist at all** — writability would then rest solely on the server's `ALLOW_*_OPERATION` switches. The current behavior is: reads pass, every write is denied, and one warning is logged.
+
+For the same reason, `enabled: false` **denies** every call in the namespace rather than unregistering the listener; unregistering would leave the MCP tools live with no policy whatsoever.
+
+### Writes with no database pinned (multi-DB)
+
+When `MYSQL_DB` is empty the upstream server runs in multi-DB mode, where the target schema comes from the statement itself (`USE`, or a `db.table` reference). One global write toggle would then authorize a write against **any schema the account can reach**, and the server's `SCHEMA_*_PERMISSIONS` list is the only narrowing.
+
+So this plugin **refuses all writes** while `DSH_MYSQL_DATABASE` is empty, unless you opt in explicitly:
+
+```bash
+export DSH_MYSQL_ALLOW_MULTI_DB_WRITES=true
+```
+
+Set that only when cross-schema writes are genuinely wanted, and narrow them per schema:
+
+```bash
+# Upstream server format: schema:true,schema2:false
+export DSH_MYSQL_SCHEMA_INSERT_PERMISSIONS='app:true'
+export DSH_MYSQL_SCHEMA_UPDATE_PERMISSIONS='app:true'
+export DSH_MYSQL_SCHEMA_DELETE_PERMISSIONS='app:true'
+export DSH_MYSQL_SCHEMA_DDL_PERMISSIONS='app:false'
+```
+
+Left unset, those four switches are all-or-nothing across every schema the account can reach.
+
 ## How writes are detected
 
 The upstream MySQL server exposes a single tool — `mysql_query` — that takes a raw SQL string. There is no per-operation tool to match on, so the plugin classifies the submitted SQL itself.
 
-Each statement in the script is checked by its leading keyword:
+Each statement is judged by its **main verb**:
 
-- **Reads** need no approval: `SELECT`, `SHOW`, `DESCRIBE`, `DESC`, `EXPLAIN`, `USE`, `VALUES`, `HELP`, and `WITH` whose body contains no write keyword.
+- **Reads** need no approval: `SELECT`, `SHOW`, `DESCRIBE`, `DESC`, `EXPLAIN`, `USE`, `VALUES`, `HELP`, and `WITH` whose main statement is a read.
 - **Writes** map to their toggle: `INSERT`/`REPLACE`/`LOAD` → `allowInsert`, `UPDATE` → `allowUpdate`, `DELETE` → `allowDelete`, `ALTER`/`CREATE`/`RENAME` → `allowAlter`, `TRUNCATE` → `allowTruncate`, `DROP` → `allowDrop`.
+- **`SELECT … FOR UPDATE` / `LOCK IN SHARE MODE`** takes write locks and needs write capability, so it is treated as `allowUpdate`.
+- **`SELECT … INTO OUTFILE` / `INTO DUMPFILE`** writes a file on the database host and is **always denied**; no toggle enables it.
 - **Everything else is denied** — including `GRANT`, `SET`, `CALL`, `LOCK`, `SHUTDOWN`, and any keyword the classifier does not recognize. There is no toggle that turns these on.
 
-A script with several `;`-separated statements is judged by its strictest statement: one write makes the whole script need approval, and one unsupported keyword denies all of it. Semicolons inside string literals, quoted identifiers, and comments do not split statements.
+The verdict follows the main verb rather than any word appearing in the statement: `WITH c AS (SELECT 1) DROP TABLE t` is a `DROP`, not a `SELECT`, while `WITH c AS (SELECT 'insert') SELECT 1` is a plain read. String literals and quoted identifiers are excluded from keyword matching, so `SELECT 'delete'` is not a write.
+
+Boundaries worth knowing:
+
+- **One statement per call.** A script holding several `;`-separated statements is refused with a message to submit them one at a time: each statement needs its own decision, and one approval covering the whole script would let a single toggle vouch for the rest. (The driver rejects multi-statement payloads anyway.)
+- **Executable comments are treated as SQL.** MySQL executes the body of `/*! … */` (including the `/*!50000 … */` version form), so those bodies are inlined before classification rather than dropped — otherwise `SELECT 1 /*!50000 INTO OUTFILE … */` would pass itself off as a plain read. Ordinary `/* … */` comments and `/*+ … */` optimizer hints are never executed and stay ignored.
+- **`EXPLAIN` is judged by the statement it wraps.** `EXPLAIN ANALYZE INSERT …` really executes it (MySQL 8.0.18+); `EXPLAIN FOR CONNECTION n` only inspects a session and counts as a read.
+- **`--` follows MySQL's rule.** It opens a comment only when followed by whitespace; `SELECT 1--2` is arithmetic.
 
 Because the classifier is deliberately conservative, an unusual but read-only statement may be refused. That is the intended direction: a statement the plugin cannot prove is a read does not run.
 
@@ -114,3 +151,16 @@ Because the classifier is deliberately conservative, an unusual but read-only st
 The MCP client runs with `failOnStartupError: false`, so a missing npm registry or an unreachable database leaves the rest of the profile working — the client retries in the background instead of stopping the harness. Set it to `true` in `cordis.patch.yml` only if this deployment must refuse to start without MySQL.
 
 The upstream server is launched with `npx`, which resolves the package on first use. On a host without registry access, install it beforehand and point `command`/`args` at the local binary.
+
+## Development
+
+```bash
+cd dsh-mysql
+pnpm install
+pnpm test        # classifier and gate behavior
+pnpm typecheck
+pnpm build       # writes lib/; the release archive is built from it, so commit it
+```
+
+After changing `src/`, re-run `pnpm build` and commit `lib/`, or the release ships stale logic. The release workflow rebuilds and diffs `lib/`, so any drift fails the release.
+

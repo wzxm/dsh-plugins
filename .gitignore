@@ -1,10 +1,13 @@
 node_modules/
 .DS_Store
 
-
-*/node_modules
-# scratch dir used by the local auth probe
+# scratch dir used by the local auth probe (can reach hundreds of MB)
 .authcheck/
 
-# release artifact: built by CI, never committed
+# Local pnpm store a sandboxed install may drop at the repo root.
+.pnpm-store/
+
+# release artifacts: built by CI, never committed. `npm pack` names the archive
+# after the package, so both spellings have to be ignored.
 */dsh-mysql.tgz
+wzxm-dsh-mysql-*.tgz

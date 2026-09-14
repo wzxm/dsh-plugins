@@ -11,13 +11,57 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dsh-mysql
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dsh-mysql/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The committed `lib/` is what gets packed, so a stale or hand-edited
+      # artifact would ship silently. Rebuilding and diffing proves the release
+      # archive actually contains the reviewed source.
+      - name: Verify committed build matches source
+        run: |
+          pnpm run build
+          git diff --exit-code -- lib
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm run test
+
+      # A tag that disagrees with the manifest publishes a version nobody can
+      # install by the name the release advertises.
+      - name: Verify tag matches package version
+        run: |
+          expected="${GITHUB_REF_NAME#dsh-mysql-v}"
+          actual="$(node -p "require('./package.json').version")"
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::tag dsh-mysql-v$expected does not match package.json version $actual"
+            exit 1
+          fi
+
+      # The committed artifact is already proven to match source, so pack it
+      # as-is: a second build here could reintroduce drift.
       - name: Create release archive
         run: |
-          cd dsh-mysql
           npm pack --ignore-scripts
           mv wzxm-dsh-mysql-*.tgz dsh-mysql.tgz
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
