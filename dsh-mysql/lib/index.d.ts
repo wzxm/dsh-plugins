@@ -1,300 +1,18 @@
+import z from "@deepseek-ai/schemastery";
 import { Context } from "@deepseek-ai/cordis";
-
-//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/types/types.d.ts
-declare function isArrayBufferLike(value: any): value is ArrayBufferLike;
-declare function isArrayBufferSource(value: any): value is Binary.Source;
-/** Binary source detection and base64/hex conversion helpers. */
-declare namespace Binary {
-  type Source<T extends ArrayBufferLike = ArrayBufferLike> = T | ArrayBufferView<T>;
-  const is: typeof isArrayBufferLike;
-  const isSource: typeof isArrayBufferSource;
-  function fromSource<T extends ArrayBufferLike>(source: Source<T>): T;
-  function toBase64(source: Source): string;
-  function fromBase64(source: string): ArrayBuffer | Uint8Array<ArrayBuffer>;
-  function toHex(source: Source): string;
-  function fromHex(source: string): ArrayBuffer;
-}
-//#endregion
-//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/types/misc.d.ts
-/** String/symbol keyed dictionary type. */
-type Dict<T = any, K extends string | symbol = string> = { [key in K]: T };
-//#endregion
-//#region node_modules/.pnpm/@standard-schema+spec@1.1.0/node_modules/@standard-schema/spec/dist/index.d.ts
-/** The Standard Typed interface. This is a base type extended by other specs. */
-interface StandardTypedV1<Input = unknown, Output = Input> {
-  /** The Standard properties. */
-  readonly "~standard": StandardTypedV1.Props<Input, Output>;
-}
-declare namespace StandardTypedV1 {
-  /** The Standard Typed properties interface. */
-  interface Props<Input = unknown, Output = Input> {
-    /** The version number of the standard. */
-    readonly version: 1;
-    /** The vendor name of the schema library. */
-    readonly vendor: string;
-    /** Inferred types associated with the schema. */
-    readonly types?: Types<Input, Output> | undefined;
-  }
-  /** The Standard Typed types interface. */
-  interface Types<Input = unknown, Output = Input> {
-    /** The input type of the schema. */
-    readonly input: Input;
-    /** The output type of the schema. */
-    readonly output: Output;
-  }
-  /** Infers the input type of a Standard Typed. */
-  type InferInput<Schema extends StandardTypedV1> = NonNullable<Schema["~standard"]["types"]>["input"];
-  /** Infers the output type of a Standard Typed. */
-  type InferOutput<Schema extends StandardTypedV1> = NonNullable<Schema["~standard"]["types"]>["output"];
-}
-/** The Standard Schema interface. */
-interface StandardSchemaV1<Input = unknown, Output = Input> {
-  /** The Standard Schema properties. */
-  readonly "~standard": StandardSchemaV1.Props<Input, Output>;
-}
-declare namespace StandardSchemaV1 {
-  /** The Standard Schema properties interface. */
-  interface Props<Input = unknown, Output = Input> extends StandardTypedV1.Props<Input, Output> {
-    /** Validates unknown input values. */
-    readonly validate: (value: unknown, options?: StandardSchemaV1.Options | undefined) => Result<Output> | Promise<Result<Output>>;
-  }
-  /** The result interface of the validate function. */
-  type Result<Output> = SuccessResult<Output> | FailureResult;
-  /** The result interface if validation succeeds. */
-  interface SuccessResult<Output> {
-    /** The typed output value. */
-    readonly value: Output;
-    /** A falsy value for `issues` indicates success. */
-    readonly issues?: undefined;
-  }
-  interface Options {
-    /** Explicit support for additional vendor-specific parameters, if needed. */
-    readonly libraryOptions?: Record<string, unknown> | undefined;
-  }
-  /** The result interface if validation fails. */
-  interface FailureResult {
-    /** The issues of failed validation. */
-    readonly issues: ReadonlyArray<Issue>;
-  }
-  /** The issue interface of the failure output. */
-  interface Issue {
-    /** The error message of the issue. */
-    readonly message: string;
-    /** The path of the issue, if any. */
-    readonly path?: ReadonlyArray<PropertyKey | PathSegment> | undefined;
-  }
-  /** The path segment interface of the issue. */
-  interface PathSegment {
-    /** The key representing a path segment. */
-    readonly key: PropertyKey;
-  }
-  /** The Standard types interface. */
-  interface Types<Input = unknown, Output = Input> extends StandardTypedV1.Types<Input, Output> {}
-  /** Infers the input type of a Standard. */
-  type InferInput<Schema extends StandardTypedV1> = StandardTypedV1.InferInput<Schema>;
-  /** Infers the output type of a Standard. */
-  type InferOutput<Schema extends StandardTypedV1> = StandardTypedV1.InferOutput<Schema>;
-}
-/** The Standard JSON Schema interface. */
-//#endregion
-//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.2/node_modules/@deepseek-ai/schemastery/lib/types/index.d.ts
-declare const kSchema: unique symbol;
-declare global {
-  namespace Schemastery {
-    /** Convert primitive constructors, constants, and existing schemas into a schema type. */
-    type From<X> = X extends string | number | boolean ? Schema<X> : X extends Schema ? X : X extends typeof String ? Schema<string> : X extends typeof Number ? Schema<number> : X extends typeof Boolean ? Schema<boolean> : X extends typeof Function ? Schema<Function, (...args: any[]) => any> : X extends Constructor<infer S> ? Schema<S> : never;
-    type TypeS1<X> = X extends Schema<infer S, unknown> ? S : never;
-    type Inverse<X> = X extends Schema<any, infer Y> ? (arg: Y) => void : never;
-    /** Input type accepted by a schema-like value. */
-    type TypeS<X> = TypeS1<From<X>>;
-    /** Output type returned by a schema-like value after validation. */
-    type TypeT<X> = ReturnType<From<X>>;
-    /** Resolver callback used by custom schema types registered with `Schema.extend()`. */
-    type Resolve = (data: any, schema: Schema, options: Options, strict?: boolean) => [any, any?];
-    /** Input type accepted by one schema in an intersection. */
-    type IntersectS<X> = From<X> extends Schema<infer S, unknown> ? S : never;
-    /** Output type returned by one schema in an intersection. */
-    type IntersectT<X> = Inverse<From<X>> extends ((arg: infer T) => void) ? T : never;
-    type TupleS<X extends readonly any[]> = X extends readonly [infer L, ...infer R] ? [TypeS<L>?, ...TupleS<R>] : any[];
-    type TupleT<X extends readonly any[]> = X extends readonly [infer L, ...infer R] ? [TypeT<L>?, ...TupleT<R>] : any[];
-    type ObjectS<X extends Dict> = { [K in keyof X]?: TypeS<X[K]> | null } & Dict;
-    type ObjectT<X extends Dict> = { [K in keyof X]: TypeT<X[K]> } & Dict;
-    type Constructor<T = any> = new (...args: any[]) => T;
-    /** Static constructor and factory methods exposed by the default `Schema` export. */
-    interface Static {
-      <T = any>(options: Partial<Schema<T>>): Schema<T>;
-      new <T = any>(options: Partial<Schema<T>>): Schema<T>;
-      prototype: Schema;
-      /** Validate a value against a schema node and return `[output, adaptedInput?]`. */
-      resolve: Resolve;
-      /** Infer a schema from a primitive value, constructor, or existing schema. */
-      from<X = any>(source?: X): From<X>;
-      /** Register a resolver for a custom schema `type`. */
-      extend(type: string, resolve: Resolve): void;
-      /** Accept any value without validation. */
-      any<T = any>(): Schema<T>;
-      /** Accept only nullable input. */
-      never(): Schema<never>;
-      /** Accept exactly one constant value. */
-      const<const T>(value: T): Schema<T>;
-      /** Accept strings, with optional metadata constraints added by instance methods. */
-      string(): Schema<string>;
-      /** Accept numbers, with optional range and step constraints. */
-      number(): Schema<number>;
-      /** Accept non-negative integer numbers. */
-      natural(): Schema<number>;
-      /** Accept a number between 0 and 1 and mark it as a slider. */
-      percent(): Schema<number>;
-      /** Accept booleans. */
-      boolean(): Schema<boolean>;
-      /** Accept `Date` instances or parse datetime strings into `Date` objects. */
-      date(): Schema<string | Date, Date>;
-      /** Accept `RegExp` instances or parse strings into regular expressions. */
-      regExp(flag?: string): Schema<string | RegExp, RegExp>;
-      /** Accept binary sources and normalize them to `ArrayBufferLike`. */
-      arrayBuffer(): Schema<Binary.Source, ArrayBufferLike>;
-      arrayBuffer(encoding: 'hex' | 'base64'): Schema<Binary.Source | string, ArrayBufferLike>;
-      /** Accept a numeric bitset or string keys and normalize to a number. */
-      bitset<K extends string>(bits: Partial<Record<K, number>>): Schema<number | readonly K[], number>;
-      /** Accept functions. */
-      function(): Schema<Function, (...args: any[]) => any>;
-      /** Accept instances of a constructor or objects whose constructor name matches. */
-      is(constructor: string): Schema;
-      is<T>(constructor: Constructor<T>): Schema<T>;
-      /** Accept arrays whose elements match `inner`. */
-      array<X>(inner: X): Schema<TypeS<X>[], TypeT<X>[]>;
-      /** Accept plain objects with values matching `inner` and optional key schema. */
-      dict<X, Y extends Schema<any, string> = Schema<string>>(inner: X, sKey?: Y): Schema<Dict<TypeS<X>, TypeS<Y>>, Dict<TypeT<X>, TypeT<Y>>>;
-      /** Accept tuple arrays where each index matches the corresponding schema. */
-      tuple<const X extends readonly any[]>(list: X): Schema<TupleS<X>, TupleT<X>>;
-      /** Accept plain objects whose declared properties match the schema dictionary. */
-      object<X extends Dict>(dict: X): Schema<ObjectS<X>, ObjectT<X>>;
-      /** Accept values matching at least one schema in `list`. */
-      union<const X>(list: readonly X[]): Schema<TypeS<X>, TypeT<X>>;
-      /** Accept values matching every schema in `list`, merging object outputs. */
-      intersect<const X>(list: readonly X[]): Schema<IntersectS<X>, IntersectT<X>>;
-      /** Validate with `inner`, then convert the result with `callback`. */
-      transform<X, T>(inner: X, callback: (value: TypeS<X>, options: Schemastery.Options) => T, preserve?: boolean): Schema<TypeS<X>, T>;
-      /** Defer construction of a recursive schema until validation or serialization. */
-      lazy<X extends Schema>(callback: () => X): X;
-      ValidationError: typeof ValidationError;
-    }
-    /** Runtime validation options shared by all schema calls. */
-    interface Options {
-      /** Remove invalid object properties instead of throwing when possible. */
-      autofix?: boolean;
-      /** Skip validation for selected values and schema nodes. */
-      ignore?(data: any, schema: Schema): boolean;
-      /** Path used to format nested validation errors. */
-      path?: (keyof any)[];
-    }
-    /** UI and validation metadata attached by schema builder methods. */
-    interface Meta<T = any> {
-      default?: T extends {} ? Partial<T> : T;
-      required?: boolean;
-      disabled?: boolean;
-      collapse?: boolean;
-      badges?: {
-        text: string;
-        type: string;
-      }[];
-      hidden?: boolean;
-      loose?: boolean;
-      role?: string;
-      extra?: any;
-      link?: string;
-      description?: string | Dict<string>;
-      comment?: string;
-      pattern?: {
-        source: string;
-        flags?: string;
-      };
-      max?: number;
-      min?: number;
-      step?: number;
-    }
-  }
-  /** Callable schema instance that validates input and returns normalized output. */
-  interface Schemastery<S = any, T = S> {
-    (data?: S | null, options?: Schemastery.Options): T;
-    new (data?: S | null, options?: Schemastery.Options): T;
-    [kSchema]: true;
-    uid: number;
-    meta: Schemastery.Meta<T>;
-    type: string;
-    sKey?: Schema;
-    inner?: Schema;
-    list?: Schema[];
-    dict?: Dict<Schema>;
-    bits?: Dict<number>;
-    callback?: Function;
-    constructor?: string | Function;
-    builder?: Function;
-    value?: T;
-    refs?: Dict<Schema>;
-    preserve?: boolean;
-    '~standard': StandardSchemaV1.Props;
-    /** Format this schema as a compact TypeScript-like type string. */
-    toString(inline?: boolean): string;
-    /** Serialize this schema, preserving shared and recursive references. */
-    toJSON(): Schema<S, T>;
-    /** Mark nullable input as invalid unless a default supplies a fallback. */
-    required(value?: boolean): Schema<S, T>;
-    /** Hide this schema node from UI renderers. */
-    hidden(value?: boolean): Schema<S, T>;
-    /** Return the default value instead of throwing when validation fails. */
-    loose(value?: boolean): Schema<S, T>;
-    /** Attach a renderer role and optional role-specific metadata. */
-    role(text: string, extra?: any): Schema<S, T>;
-    /** Attach an external documentation link. */
-    link(link: string): Schema<S, T>;
-    /** Set the fallback value used for nullable input. */
-    default(value: T): Schema<S, T>;
-    /** Attach an auxiliary comment for documentation or form UIs. */
-    comment(text: string): Schema<S, T>;
-    /** Attach a localized or plain description for documentation or form UIs. */
-    description(text: string): Schema<S, T>;
-    /** Mark this schema node as disabled for form UIs. */
-    disabled(value?: boolean): Schema<S, T>;
-    /** Request collapsed rendering for nested form UIs. */
-    collapse(value?: boolean): Schema<S, T>;
-    /** Add a deprecated badge to this schema node. */
-    deprecated(): Schema<S, T>;
-    /** Add an experimental badge to this schema node. */
-    experimental(): Schema<S, T>;
-    /** Require strings to match a regular expression. */
-    pattern(regexp: RegExp): Schema<S, T>;
-    /** Set an inclusive maximum for numbers or collection lengths. */
-    max(value: number): Schema<S, T>;
-    /** Set an inclusive minimum for numbers or collection lengths. */
-    min(value: number): Schema<S, T>;
-    /** Set the numeric increment constraint. */
-    step(value: number): Schema<S, T>;
-    /** Add or replace an object property schema. */
-    set(key: string, value: Schema): Schema<S, T>;
-    /** Append a tuple, union, or intersection member schema. */
-    push(value: Schema): Schema<S, T>;
-    /** Remove values equal to schema defaults from normalized output. */
-    simplify(value?: any): any;
-    /** Return a schema clone with descriptions merged from locale messages. */
-    i18n(messages: Dict): Schema<S, T>;
-    /** Attach arbitrary metadata consumed by form renderers and downstream tools. */
-    extra<K extends keyof Schemastery.Meta>(key: K, value: Schemastery.Meta[K]): Schema<S, T>;
-  }
-}
-declare class ValidationError extends TypeError {
-  options: Schemastery.Options;
-  name: string;
-  constructor(message: string, options: Schemastery.Options);
-  static is(error: any): error is ValidationError;
-}
-type Schema<S = any, T = S> = Schemastery<S, T>;
-declare const Schema: Schemastery.Static;
-//#endregion
 //#region src/index.d.ts
 declare const name = "dsh-mysql";
+/**
+ * Only `tools` is required. `approval` is resolved with `ctx.get` at the point
+ * of use: a hard dependency would keep `apply` from ever running in a profile
+ * without an approval seam, and the write gate would not be installed at all.
+ */
 declare const inject: string[];
 interface Config {
+  /**
+   * When false, every call in this server's namespace is denied. The gate stays
+   * registered on purpose — see the module docblock.
+   */
   enabled?: boolean;
   serverName?: string;
   allowInsert?: boolean;
@@ -303,24 +21,61 @@ interface Config {
   allowAlter?: boolean;
   allowTruncate?: boolean;
   allowDrop?: boolean;
-  /** Reserved for a future result-size guard; accepted so existing config keeps loading. */
-  maxAffectedRows?: number;
+  /**
+   * The database this bridge is scoped to. Empty means the upstream server runs
+   * in multi-DB mode, where a write is allowed against ANY schema the account
+   * can reach and the per-schema `SCHEMA_*_PERMISSIONS` list is the only
+   * narrowing. Writes are therefore refused in that mode unless
+   * {@link allowMultiDbWrites} is set.
+   */
+  database?: string;
+  /**
+   * Permit writes while no database is pinned (multi-DB mode). Off by default:
+   * one global toggle would otherwise authorize writes across every reachable
+   * schema, not just the intended one.
+   */
+  allowMultiDbWrites?: boolean;
 }
-declare const Config: Schema<Config>;
+declare const Config: z<Config>;
 /** The `allow*` switches, keyed by the write they permit. */
 type WriteSetting = 'allowInsert' | 'allowUpdate' | 'allowDelete' | 'allowAlter' | 'allowTruncate' | 'allowDrop';
 /**
- * Split a SQL script into statements on top-level semicolons.
- *
- * String literals, quoted identifiers, and comments are copied through
- * untouched so a `;` inside `'a;b'` or inside a comment never splits a
- * statement — mis-splitting would let a write hide behind a read's keyword.
+ * Split a SQL script into statements on top-level semicolons, with the bodies
+ * of executable comments inlined as the SQL they carry.
  * @param sql - the script to split.
  * @returns each statement with surrounding whitespace and comments trimmed.
  */
 declare function splitStatements(sql: string): string[];
-/** What one SQL payload requires before it may run. */
-type SqlVerdict = {
+/**
+ * Blank out the *contents* of every string literal and quoted identifier in one
+ * statement, preserving length so offsets still line up.
+ *
+ * Keyword scans must not read text the server treats as data: without this,
+ * `SELECT 'insert'` and `` SELECT 1 FROM `delete` `` look like writes. String
+ * literals become spaces; quoted identifiers become {@link IDENTIFIER_FILL}
+ * runs, which keeps them recognizable as a single identifier token without ever
+ * spelling a keyword.
+ * @param statement - one statement, comments already removed.
+ * @returns an equal-length copy safe to scan for keywords.
+ */
+declare function maskLiterals(statement: string): string;
+/**
+ * The main verb of a `WITH` (CTE) statement, with the text that follows it.
+ *
+ * The verb — not any word appearing anywhere in the statement — decides the
+ * required switch, so `WITH c AS (SELECT 1) DROP TABLE t` is a DROP and
+ * `WITH c AS (SELECT 'insert') SELECT 1` is a plain read. The CTE bodies were
+ * already masked, so `insert` inside one is invisible here.
+ * @param masked - the masked statement, whose leading word is `with`.
+ * @returns the lowercased main verb and its remainder, or `undefined` when the
+ *   CTE header cannot be parsed.
+ */
+declare function cteHead(masked: string): {
+  verb: string;
+  rest: string;
+} | undefined;
+/** What one SQL statement requires before it may run. */
+type StatementVerdict = {
   kind: 'read';
 } | {
   kind: 'write';
@@ -328,15 +83,28 @@ type SqlVerdict = {
 } | {
   kind: 'unsupported';
   keyword: string;
+} |
+/** `INTO OUTFILE` / `INTO DUMPFILE`: writes a file on the database host. */
+{
+  kind: 'file';
+  keyword: string;
+};
+/** What one SQL payload requires before it may run. */
+type SqlVerdict = StatementVerdict |
+/** More than one statement was submitted; this bridge runs exactly one. */
+{
+  kind: 'multiple';
+  count: number;
 } | {
   kind: 'empty';
 };
 /**
  * Classify one submitted SQL script.
  *
- * A script may hold several `;`-separated statements, so the verdict is the
- * strictest one any statement produces: one write makes the whole script a
- * write, and one unsupported keyword denies the whole script.
+ * A script must hold exactly one statement. MySQL's driver already rejects
+ * multi-statement payloads, and judging several statements by one verdict would
+ * mean one switch silently authorizing the others, so a multi-statement script
+ * is refused with a message that says what to do instead.
  * @param sql - the script from the tool call's `sql` argument.
  * @returns the approval requirement the script carries.
  */
@@ -348,5 +116,5 @@ declare const _default: {
   apply: typeof apply;
 };
 //#endregion
-export { Config, SqlVerdict, apply, classifySql, _default as default, inject, name, splitStatements };
+export { Config, SqlVerdict, StatementVerdict, apply, classifySql, cteHead, _default as default, inject, maskLiterals, name, splitStatements };
 //# sourceMappingURL=index.d.ts.map

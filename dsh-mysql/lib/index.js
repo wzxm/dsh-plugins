@@ -1,821 +1,36 @@
-import "@deepseek-ai/dsh-user-approval";
-//#region node_modules/.pnpm/@deepseek-ai+cosmokit@1.8.3/node_modules/@deepseek-ai/cosmokit/lib/index.js
-/** Return true when a value is `null` or `undefined`. */
-function isNullable(value) {
-	return value === null || value === void 0;
-}
-/** Return true for non-array object values. */
-function isPlainObject(data) {
-	return data && typeof data === "object" && !Array.isArray(data);
-}
-/** Filter object entries and return a new object. */
-function filterKeys(object, filter) {
-	return Object.fromEntries(Object.entries(object).filter(([key, value]) => filter(key, value)));
-}
-/** Map object values while preserving the original key set. */
-function mapValues(object, transform) {
-	return Object.fromEntries(Object.entries(object).map(([key, value]) => [key, transform(value, key)]));
-}
-/** Pick selected keys from an object, optionally including `undefined` values. */
-function pick(source, keys, forced) {
-	if (!keys) return { ...source };
-	const result = {};
-	for (const key of keys) if (forced || source[key] !== void 0) result[key] = source[key];
-	return result;
-}
-/** Test values using `instanceof` with a `toStringTag` fallback. */
-function is(type, value) {
-	if (arguments.length === 1) return (value) => is(type, value);
-	return type in globalThis && value instanceof globalThis[type] || Object.prototype.toString.call(value).slice(8, -1) === type;
-}
-function isArrayBufferLike(value) {
-	return is("ArrayBuffer", value) || is("SharedArrayBuffer", value);
-}
-function isArrayBufferSource(value) {
-	return isArrayBufferLike(value) || ArrayBuffer.isView(value);
-}
-/** Binary source detection and base64/hex conversion helpers. */
-var Binary;
-(function(Binary) {
-	Binary.is = isArrayBufferLike;
-	Binary.isSource = isArrayBufferSource;
-	function fromSource(source) {
-		if (ArrayBuffer.isView(source)) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
-		else return source;
-	}
-	Binary.fromSource = fromSource;
-	function toBase64(source) {
-		source = fromSource(source);
-		if (typeof Buffer !== "undefined") return Buffer.from(source).toString("base64");
-		let binary = "";
-		const bytes = new Uint8Array(source);
-		for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-		return btoa(binary);
-	}
-	Binary.toBase64 = toBase64;
-	function fromBase64(source) {
-		if (typeof Buffer !== "undefined") return fromSource(Buffer.from(source, "base64"));
-		return Uint8Array.from(atob(source), (c) => c.charCodeAt(0));
-	}
-	Binary.fromBase64 = fromBase64;
-	function toHex(source) {
-		source = fromSource(source);
-		if (typeof Buffer !== "undefined") return Buffer.from(source).toString("hex");
-		return Array.from(new Uint8Array(source), (byte) => byte.toString(16).padStart(2, "0")).join("");
-	}
-	Binary.toHex = toHex;
-	function fromHex(source) {
-		if (typeof Buffer !== "undefined") return fromSource(Buffer.from(source, "hex"));
-		const hex = source.length % 2 === 0 ? source : source.slice(0, source.length - 1);
-		const buffer = [];
-		for (let i = 0; i < hex.length; i += 2) buffer.push(parseInt(`${hex[i]}${hex[i + 1]}`, 16));
-		return Uint8Array.from(buffer).buffer;
-	}
-	Binary.fromHex = fromHex;
-})(Binary || (Binary = {}));
-Binary.fromBase64;
-Binary.toBase64;
-Binary.fromHex;
-Binary.toHex;
-/** Deep-clone common JavaScript values while preserving prototypes and cycles. */
-function clone(source, refs = /* @__PURE__ */ new Map()) {
-	if (!source || typeof source !== "object") return source;
-	if (is("Date", source)) return new Date(source.valueOf());
-	if (is("RegExp", source)) return new RegExp(source.source, source.flags);
-	if (isArrayBufferLike(source)) return source.slice(0);
-	if (ArrayBuffer.isView(source)) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
-	const cached = refs.get(source);
-	if (cached) return cached;
-	if (Array.isArray(source)) {
-		const result = [];
-		refs.set(source, result);
-		source.forEach((value, index) => {
-			result[index] = Reflect.apply(clone, null, [value, refs]);
-		});
-		return result;
-	}
-	const result = Object.create(Object.getPrototypeOf(source));
-	refs.set(source, result);
-	for (const key of Reflect.ownKeys(source)) {
-		const descriptor = { ...Reflect.getOwnPropertyDescriptor(source, key) };
-		if ("value" in descriptor) descriptor.value = Reflect.apply(clone, null, [descriptor.value, refs]);
-		Reflect.defineProperty(result, key, descriptor);
-	}
-	return result;
-}
-/** Deeply compare arrays, dates, regexps, buffers, and plain object fields. */
-function deepEqual(a, b, strict) {
-	if (a === b) return true;
-	if (!strict && isNullable(a) && isNullable(b)) return true;
-	if (typeof a !== typeof b) return false;
-	if (typeof a !== "object") return false;
-	if (!a || !b) return false;
-	function check(test, then) {
-		return test(a) ? test(b) ? then(a, b) : false : test(b) ? false : void 0;
-	}
-	return check(Array.isArray, (a, b) => a.length === b.length && a.every((item, index) => deepEqual(item, b[index]))) ?? check(is("Date"), (a, b) => a.valueOf() === b.valueOf()) ?? check(is("RegExp"), (a, b) => a.source === b.source && a.flags === b.flags) ?? check(isArrayBufferLike, (a, b) => {
-		if (a.byteLength !== b.byteLength) return false;
-		const viewA = new Uint8Array(a);
-		const viewB = new Uint8Array(b);
-		for (let i = 0; i < viewA.length; i++) if (viewA[i] !== viewB[i]) return false;
-		return true;
-	}) ?? Object.keys({
-		...a,
-		...b
-	}).every((key) => deepEqual(a[key], b[key], strict));
-}
-/** Time constants plus parsing and formatting helpers. */
-var Time;
-(function(Time) {
-	Time.millisecond = 1;
-	Time.second = 1e3;
-	Time.minute = Time.second * 60;
-	Time.hour = Time.minute * 60;
-	Time.day = Time.hour * 24;
-	Time.week = Time.day * 7;
-	let timezoneOffset = (/* @__PURE__ */ new Date()).getTimezoneOffset();
-	function setTimezoneOffset(offset) {
-		timezoneOffset = offset;
-	}
-	Time.setTimezoneOffset = setTimezoneOffset;
-	function getTimezoneOffset() {
-		return timezoneOffset;
-	}
-	Time.getTimezoneOffset = getTimezoneOffset;
-	function getDateNumber(date = /* @__PURE__ */ new Date(), offset) {
-		if (typeof date === "number") date = new Date(date);
-		if (offset === void 0) offset = timezoneOffset;
-		return Math.floor((date.valueOf() / Time.minute - offset) / 1440);
-	}
-	Time.getDateNumber = getDateNumber;
-	function fromDateNumber(value, offset) {
-		const date = new Date(value * Time.day);
-		if (offset === void 0) offset = timezoneOffset;
-		return new Date(+date + offset * Time.minute);
-	}
-	Time.fromDateNumber = fromDateNumber;
-	const numeric = /\d+(?:\.\d+)?/.source;
-	const timeRegExp = new RegExp(`^${[
-		"w(?:eek(?:s)?)?",
-		"d(?:ay(?:s)?)?",
-		"h(?:our(?:s)?)?",
-		"m(?:in(?:ute)?(?:s)?)?",
-		"s(?:ec(?:ond)?(?:s)?)?"
-	].map((unit) => `(${numeric}${unit})?`).join("")}$`);
-	function parseTime(source) {
-		const capture = timeRegExp.exec(source);
-		if (!capture) return 0;
-		return (parseFloat(capture[1]) * Time.week || 0) + (parseFloat(capture[2]) * Time.day || 0) + (parseFloat(capture[3]) * Time.hour || 0) + (parseFloat(capture[4]) * Time.minute || 0) + (parseFloat(capture[5]) * Time.second || 0);
-	}
-	Time.parseTime = parseTime;
-	function parseDate(date) {
-		const parsed = parseTime(date);
-		if (parsed) date = Date.now() + parsed;
-		else if (/^\d{1,2}(:\d{1,2}){1,2}$/.test(date)) date = `${(/* @__PURE__ */ new Date()).toLocaleDateString()}-${date}`;
-		else if (/^\d{1,2}-\d{1,2}-\d{1,2}(:\d{1,2}){1,2}$/.test(date)) date = `${(/* @__PURE__ */ new Date()).getFullYear()}-${date}`;
-		return date ? new Date(date) : /* @__PURE__ */ new Date();
-	}
-	Time.parseDate = parseDate;
-	function format(ms) {
-		const abs = Math.abs(ms);
-		if (abs >= Time.day - Time.hour / 2) return Math.round(ms / Time.day) + "d";
-		else if (abs >= Time.hour - Time.minute / 2) return Math.round(ms / Time.hour) + "h";
-		else if (abs >= Time.minute - Time.second / 2) return Math.round(ms / Time.minute) + "m";
-		else if (abs >= Time.second) return Math.round(ms / Time.second) + "s";
-		return ms + "ms";
-	}
-	Time.format = format;
-	function toDigits(source, length = 2) {
-		return source.toString().padStart(length, "0");
-	}
-	Time.toDigits = toDigits;
-	function template(template, time = /* @__PURE__ */ new Date()) {
-		return template.replace("yyyy", time.getFullYear().toString()).replace("yy", time.getFullYear().toString().slice(2)).replace("MM", toDigits(time.getMonth() + 1)).replace("dd", toDigits(time.getDate())).replace("hh", toDigits(time.getHours())).replace("mm", toDigits(time.getMinutes())).replace("ss", toDigits(time.getSeconds())).replace("SSS", toDigits(time.getMilliseconds(), 3));
-	}
-	Time.template = template;
-})(Time || (Time = {}));
-//#endregion
-//#region node_modules/.pnpm/@deepseek-ai+schemastery@3.18.2/node_modules/@deepseek-ai/schemastery/lib/index.mjs
-const kSchema = Symbol.for("schemastery");
-const kValidationError = Symbol.for("ValidationError");
-globalThis.__schemastery_index__ ??= 0;
-globalThis.__schemastery_refs__ = void 0;
-var ValidationError = class extends TypeError {
-	options;
-	name = "ValidationError";
-	constructor(message, options) {
-		let prefix = "$";
-		for (const segment of options.path || []) if (typeof segment === "string") prefix += "." + segment;
-		else if (typeof segment === "number") prefix += "[" + segment + "]";
-		else if (typeof segment === "symbol") prefix += `[Symbol(${segment.toString()})]`;
-		if (prefix.startsWith(".")) prefix = prefix.slice(1);
-		super((prefix === "$" ? "" : `${prefix} `) + message);
-		this.options = options;
-	}
-	static is(error) {
-		return !!error?.[kValidationError];
-	}
-};
-Object.defineProperty(ValidationError.prototype, kValidationError, { value: true });
-const Schema = function(options) {
-	const schema = function(data, options = {}) {
-		return Schema.resolve(data, schema, options)[0];
-	};
-	if (options.refs) {
-		const refs = mapValues(options.refs, (options) => new Schema(options));
-		const getRef = (uid) => refs[uid];
-		for (const key in refs) {
-			const options = refs[key];
-			options.sKey = getRef(options.sKey);
-			options.inner = getRef(options.inner);
-			options.list = options.list && options.list.map(getRef);
-			options.dict = options.dict && mapValues(options.dict, getRef);
-		}
-		return refs[options.uid];
-	}
-	Object.assign(schema, options);
-	if (typeof schema.callback === "string") try {
-		schema.callback = new Function("return " + schema.callback)();
-	} catch {}
-	Object.defineProperty(schema, "uid", { value: globalThis.__schemastery_index__++ });
-	Object.setPrototypeOf(schema, Schema.prototype);
-	schema.meta ||= {};
-	schema.toString = schema.toString.bind(schema);
-	return schema;
-};
-Schema.prototype = Object.create(Function.prototype);
-Schema.prototype[kSchema] = true;
-Object.defineProperty(Schema.prototype, "~standard", { get() {
-	return {
-		version: 1,
-		vendor: "schemastery",
-		validate: (value) => {
-			try {
-				return { value: Schema.resolve(value, this, {})[0] };
-			} catch (error) {
-				if (ValidationError.is(error)) return { issues: [{
-					message: error.message,
-					path: error.options.path
-				}] };
-				throw error;
-			}
-		}
-	};
-} });
-Schema.ValidationError = ValidationError;
-Schema.prototype.toJSON = function toJSON() {
-	if (globalThis.__schemastery_refs__) {
-		globalThis.__schemastery_refs__[this.uid] ??= JSON.parse(JSON.stringify({ ...this }));
-		return this.uid;
-	}
-	globalThis.__schemastery_refs__ = { [this.uid]: { ...this } };
-	globalThis.__schemastery_refs__[this.uid] = JSON.parse(JSON.stringify({ ...this }));
-	const result = {
-		uid: this.uid,
-		refs: globalThis.__schemastery_refs__
-	};
-	globalThis.__schemastery_refs__ = void 0;
-	return result;
-};
-Schema.prototype.set = function set(key, value) {
-	this.dict[key] = value;
-	return this;
-};
-Schema.prototype.push = function push(value) {
-	this.list.push(value);
-	return this;
-};
-function mergeDesc(original, messages) {
-	const result = typeof original === "string" ? { "": original } : { ...original };
-	for (const locale in messages) {
-		const value = messages[locale];
-		if (value?.$description || value?.$desc) result[locale] = value.$description || value.$desc;
-		else if (typeof value === "string") result[locale] = value;
-	}
-	return result;
-}
-function getInner(value) {
-	return value?.$value ?? value?.$inner;
-}
-function extractKeys(data) {
-	return filterKeys(data ?? {}, (key) => !key.startsWith("$"));
-}
-Schema.prototype.i18n = function i18n(messages) {
-	const schema = Schema(this);
-	const desc = mergeDesc(schema.meta.description, messages);
-	if (Object.keys(desc).length) schema.meta.description = desc;
-	if (schema.dict) schema.dict = mapValues(schema.dict, (inner, key) => {
-		return inner.i18n(mapValues(messages, (data) => getInner(data)?.[key] ?? data?.[key]));
-	});
-	if (schema.list) schema.list = schema.list.map((inner, index) => {
-		return inner.i18n(mapValues(messages, (data = {}) => {
-			if (Array.isArray(getInner(data))) return getInner(data)[index];
-			if (Array.isArray(data)) return data[index];
-			return extractKeys(data);
-		}));
-	});
-	if (schema.inner) schema.inner = schema.inner.i18n(mapValues(messages, (data) => {
-		if (getInner(data)) return getInner(data);
-		return extractKeys(data);
-	}));
-	if (schema.sKey) schema.sKey = schema.sKey.i18n(mapValues(messages, (data) => data?.$key));
-	return schema;
-};
-Schema.prototype.extra = function extra(key, value) {
-	const schema = Schema(this);
-	schema.meta = {
-		...schema.meta,
-		[key]: value
-	};
-	return schema;
-};
-for (const key of [
-	"required",
-	"disabled",
-	"collapse",
-	"hidden",
-	"loose"
-]) Object.assign(Schema.prototype, { [key](value = true) {
-	const schema = Schema(this);
-	schema.meta = {
-		...schema.meta,
-		[key]: value
-	};
-	return schema;
-} });
-Schema.prototype.deprecated = function deprecated() {
-	const schema = Schema(this);
-	schema.meta.badges ||= [];
-	schema.meta.badges.push({
-		text: "deprecated",
-		type: "danger"
-	});
-	return schema;
-};
-Schema.prototype.experimental = function experimental() {
-	const schema = Schema(this);
-	schema.meta.badges ||= [];
-	schema.meta.badges.push({
-		text: "experimental",
-		type: "warning"
-	});
-	return schema;
-};
-Schema.prototype.pattern = function pattern(regexp) {
-	const schema = Schema(this);
-	const pattern = pick(regexp, ["source", "flags"]);
-	schema.meta = {
-		...schema.meta,
-		pattern
-	};
-	return schema;
-};
-Schema.prototype.simplify = function simplify(value) {
-	if (deepEqual(value, this.meta.default, this.type === "dict")) return null;
-	if (isNullable(value)) return value;
-	if (this.type === "object" || this.type === "dict") {
-		const result = {};
-		for (const key in value) {
-			const item = (this.type === "object" ? this.dict[key] : this.inner)?.simplify(value[key]);
-			if (this.type === "dict" || !isNullable(item)) result[key] = item;
-		}
-		if (deepEqual(result, this.meta.default, this.type === "dict")) return null;
-		return result;
-	} else if (this.type === "array" || this.type === "tuple") {
-		const result = [];
-		value.forEach((value, index) => {
-			const schema = this.type === "array" ? this.inner : this.list[index];
-			const item = schema ? schema.simplify(value) : value;
-			result.push(item);
-		});
-		return result;
-	} else if (this.type === "intersect") {
-		const result = {};
-		for (const item of this.list) Object.assign(result, item.simplify(value));
-		return result;
-	} else if (this.type === "union") for (const schema of this.list) try {
-		Schema.resolve(value, schema, {});
-		return schema.simplify(value);
-	} catch {}
-	return value;
-};
-Schema.prototype.toString = function toString(inline) {
-	return formatters[this.type]?.(this, inline) ?? `Schema<${this.type}>`;
-};
-Schema.prototype.role = function role(role, extra) {
-	const schema = Schema(this);
-	schema.meta = {
-		...schema.meta,
-		role,
-		extra
-	};
-	return schema;
-};
-for (const key of [
-	"default",
-	"link",
-	"comment",
-	"description",
-	"max",
-	"min",
-	"step"
-]) Object.assign(Schema.prototype, { [key](value) {
-	const schema = Schema(this);
-	schema.meta = {
-		...schema.meta,
-		[key]: value
-	};
-	return schema;
-} });
-const resolvers = {};
-Schema.extend = function extend(type, resolve) {
-	resolvers[type] = resolve;
-};
-Schema.resolve = function resolve(data, schema, options = {}, strict = false) {
-	if (!schema) return [data];
-	if (options.ignore?.(data, schema)) return [data];
-	if (isNullable(data) && schema.type !== "lazy") {
-		if (schema.meta.required) throw new ValidationError(`missing required value`, options);
-		let current = schema;
-		let fallback = schema.meta.default;
-		while (current?.type === "intersect" && isNullable(fallback)) {
-			current = current.list[0];
-			fallback = current?.meta.default;
-		}
-		if (isNullable(fallback)) return [data];
-		data = clone(fallback);
-	}
-	const callback = resolvers[schema.type];
-	if (!callback) throw new ValidationError(`unsupported type "${schema.type}"`, options);
-	try {
-		return callback(data, schema, options, strict);
-	} catch (error) {
-		if (!schema.meta.loose) throw error;
-		return [schema.meta.default];
-	}
-};
-Schema.from = function from(source) {
-	if (isNullable(source)) return Schema.any();
-	else if ([
-		"string",
-		"number",
-		"boolean"
-	].includes(typeof source)) return Schema.const(source).required();
-	else if (source[kSchema]) return source;
-	else if (typeof source === "function") switch (source) {
-		case String: return Schema.string().required();
-		case Number: return Schema.number().required();
-		case Boolean: return Schema.boolean().required();
-		case Function: return Schema.function().required();
-		default: return Schema.is(source).required();
-	}
-	else throw new TypeError(`cannot infer schema from ${source}`);
-};
-Schema.lazy = function lazy(builder) {
-	const toJSON = () => {
-		if (!schema.inner[kSchema]) {
-			schema.inner = schema.builder();
-			schema.inner.meta = {
-				...schema.meta,
-				...schema.inner.meta
-			};
-		}
-		return schema.inner.toJSON();
-	};
-	const schema = new Schema({
-		type: "lazy",
-		builder,
-		inner: { toJSON }
-	});
-	return schema;
-};
-Schema.natural = function natural() {
-	return Schema.number().step(1).min(0);
-};
-Schema.percent = function percent() {
-	return Schema.number().step(.01).min(0).max(1).role("slider");
-};
-Schema.date = function date() {
-	return Schema.union([Schema.is(Date), Schema.transform(Schema.string().role("datetime"), (value, options) => {
-		const date = new Date(value);
-		if (isNaN(+date)) throw new ValidationError(`invalid date "${value}"`, options);
-		return date;
-	}, true)]);
-};
-Schema.regExp = function regExp(flag = "") {
-	return Schema.union([Schema.is(RegExp), Schema.transform(Schema.string().role("regexp", { flag }), (value, options) => {
-		try {
-			return new RegExp(value, flag);
-		} catch (e) {
-			throw new ValidationError(e.message, options);
-		}
-	}, true)]);
-};
-Schema.arrayBuffer = function arrayBuffer(encoding) {
-	return Schema.union([
-		Schema.is(ArrayBuffer),
-		Schema.is(SharedArrayBuffer),
-		Schema.transform(Schema.any(), (value, options) => {
-			if (Binary.isSource(value)) return Binary.fromSource(value);
-			throw new ValidationError(`expected ArrayBufferSource but got ${value}`, options);
-		}, true),
-		...encoding ? [Schema.transform(Schema.string(), (value, options) => {
-			try {
-				return encoding === "base64" ? Binary.fromBase64(value) : Binary.fromHex(value);
-			} catch (e) {
-				throw new ValidationError(e.message, options);
-			}
-		}, true)] : []
-	]);
-};
-Schema.extend("lazy", (data, schema, options, strict) => {
-	if (!schema.inner[kSchema]) {
-		schema.inner = schema.builder();
-		schema.inner.meta = {
-			...schema.meta,
-			...schema.inner.meta
-		};
-	}
-	return Schema.resolve(data, schema.inner, options, strict);
-});
-Schema.extend("any", (data) => {
-	return [data];
-});
-Schema.extend("never", (data, _, options) => {
-	throw new ValidationError(`expected nullable but got ${data}`, options);
-});
-Schema.extend("const", (data, { value }, options) => {
-	if (deepEqual(data, value)) return [value];
-	throw new ValidationError(`expected ${value} but got ${data}`, options);
-});
-function checkWithinRange(data, meta, description, options, skipMin = false) {
-	const { max = Infinity, min = -Infinity } = meta;
-	if (data > max) throw new ValidationError(`expected ${description} <= ${max} but got ${data}`, options);
-	if (data < min && !skipMin) throw new ValidationError(`expected ${description} >= ${min} but got ${data}`, options);
-}
-Schema.extend("string", (data, { meta }, options) => {
-	if (typeof data !== "string") throw new ValidationError(`expected string but got ${data}`, options);
-	if (meta.pattern) {
-		const regexp = new RegExp(meta.pattern.source, meta.pattern.flags);
-		if (!regexp.test(data)) throw new ValidationError(`expect string to match regexp ${regexp}`, options);
-	}
-	checkWithinRange(data.length, meta, "string length", options);
-	return [data];
-});
-function decimalShift(data, digits) {
-	const str = data.toString();
-	if (str.includes("e")) return data * Math.pow(10, digits);
-	const index = str.indexOf(".");
-	if (index === -1) return data * Math.pow(10, digits);
-	const frac = str.slice(index + 1);
-	const integer = str.slice(0, index);
-	if (frac.length <= digits) return +(integer + frac.padEnd(digits, "0"));
-	return +(integer + frac.slice(0, digits) + "." + frac.slice(digits));
-}
-function isMultipleOf(data, min, step) {
-	step = Math.abs(step);
-	if (!/^\d+\.\d+$/.test(step.toString())) return (data - min) % step === 0;
-	const index = step.toString().indexOf(".");
-	const digits = step.toString().slice(index + 1).length;
-	return Math.abs(decimalShift(data, digits) - decimalShift(min, digits)) % decimalShift(step, digits) === 0;
-}
-Schema.extend("number", (data, { meta }, options) => {
-	if (typeof data !== "number") throw new ValidationError(`expected number but got ${data}`, options);
-	checkWithinRange(data, meta, "number", options);
-	const { step } = meta;
-	if (step && !isMultipleOf(data, meta.min ?? 0, step)) throw new ValidationError(`expected number multiple of ${step} but got ${data}`, options);
-	return [data];
-});
-Schema.extend("boolean", (data, _, options) => {
-	if (typeof data === "boolean") return [data];
-	throw new ValidationError(`expected boolean but got ${data}`, options);
-});
-Schema.extend("bitset", (data, { bits, meta }, options) => {
-	let value = 0, keys = [];
-	if (typeof data === "number") {
-		value = data;
-		for (const key in bits) if (data & bits[key]) keys.push(key);
-	} else if (Array.isArray(data)) {
-		keys = data;
-		for (const key of keys) {
-			if (typeof key !== "string") throw new ValidationError(`expected string but got ${key}`, options);
-			if (key in bits) value |= bits[key];
-		}
-	} else throw new ValidationError(`expected number or array but got ${data}`, options);
-	if (value === meta.default) return [value];
-	return [value, keys];
-});
-Schema.extend("function", (data, _, options) => {
-	if (typeof data === "function") return [data];
-	throw new ValidationError(`expected function but got ${data}`, options);
-});
-Schema.extend("is", (data, { constructor }, options) => {
-	if (typeof constructor === "function") {
-		if (data instanceof constructor) return [data];
-		throw new ValidationError(`expected ${constructor.name} but got ${data}`, options);
-	} else {
-		if (isNullable(data)) throw new ValidationError(`expected ${constructor} but got ${data}`, options);
-		let prototype = Object.getPrototypeOf(data);
-		while (prototype) {
-			if (prototype.constructor?.name === constructor) return [data];
-			prototype = Object.getPrototypeOf(prototype);
-		}
-		throw new ValidationError(`expected ${constructor} but got ${data}`, options);
-	}
-});
-function property(data, key, schema, options) {
-	try {
-		const [value, adapted] = Schema.resolve(data[key], schema, {
-			...options,
-			path: [...options.path || [], key]
-		});
-		if (adapted !== void 0) data[key] = adapted;
-		return value;
-	} catch (e) {
-		if (!options?.autofix) throw e;
-		delete data[key];
-		return schema.meta.default;
-	}
-}
-Schema.extend("array", (data, { inner, meta }, options) => {
-	if (!Array.isArray(data)) throw new ValidationError(`expected array but got ${data}`, options);
-	checkWithinRange(data.length, meta, "array length", options, !isNullable(inner.meta.default));
-	return [data.map((_, index) => property(data, index, inner, options))];
-});
-Schema.extend("dict", (data, { inner, sKey }, options, strict) => {
-	if (!isPlainObject(data)) throw new ValidationError(`expected object but got ${data}`, options);
-	const result = {};
-	for (const key in data) {
-		let rKey;
-		try {
-			rKey = Schema.resolve(key, sKey, options)[0];
-		} catch (error) {
-			if (strict) continue;
-			throw error;
-		}
-		result[rKey] = property(data, key, inner, options);
-		data[rKey] = data[key];
-		if (key !== rKey) delete data[key];
-	}
-	return [result];
-});
-Schema.extend("tuple", (data, { list }, options, strict) => {
-	if (!Array.isArray(data)) throw new ValidationError(`expected array but got ${data}`, options);
-	const result = list.map((inner, index) => property(data, index, inner, options));
-	if (strict) return [result];
-	result.push(...data.slice(list.length));
-	return [result];
-});
-function merge(result, data) {
-	for (const key in data) {
-		if (key in result) continue;
-		result[key] = data[key];
-	}
-}
-Schema.extend("object", (data, { dict }, options, strict) => {
-	if (!isPlainObject(data)) throw new ValidationError(`expected object but got ${data}`, options);
-	const result = {};
-	for (const key in dict) {
-		const value = property(data, key, dict[key], options);
-		if (!isNullable(value) || key in data) result[key] = value;
-	}
-	if (!strict) merge(result, data);
-	return [result];
-});
-Schema.extend("union", (data, { list, toString }, options, strict) => {
-	const messages = [];
-	for (const inner of list) try {
-		return Schema.resolve(data, inner, options, strict);
-	} catch (error) {
-		messages.push(error);
-	}
-	throw new ValidationError(`expected ${toString()} but got ${JSON.stringify(data)}`, options);
-});
-Schema.extend("intersect", (data, { list, toString }, options, strict) => {
-	if (!list.length) return [data];
-	let result;
-	for (const inner of list) {
-		const value = Schema.resolve(data, inner, options, true)[0];
-		if (isNullable(value)) continue;
-		if (isNullable(result)) result = value;
-		else if (typeof result !== typeof value) throw new ValidationError(`expected ${toString()} but got ${JSON.stringify(data)}`, options);
-		else if (typeof value === "object") merge(result ??= {}, value);
-		else if (result !== value) throw new ValidationError(`expected ${toString()} but got ${JSON.stringify(data)}`, options);
-	}
-	if (!strict && isPlainObject(data)) merge(result, data);
-	return [result];
-});
-Schema.extend("transform", (data, { inner, callback, preserve }, options) => {
-	const [result, adapted = data] = Schema.resolve(data, inner, options, true);
-	if (preserve) return [callback(result)];
-	else return [callback(result), callback(adapted)];
-});
-const formatters = {};
-function defineMethod(name, keys, format) {
-	formatters[name] = format;
-	Object.assign(Schema, { [name](...args) {
-		const schema = new Schema({ type: name });
-		keys.forEach((key, index) => {
-			switch (key) {
-				case "sKey":
-					schema.sKey = args[index] ?? Schema.string();
-					break;
-				case "inner":
-					schema.inner = Schema.from(args[index]);
-					break;
-				case "list":
-					schema.list = args[index].map(Schema.from);
-					break;
-				case "dict":
-					schema.dict = mapValues(args[index], Schema.from);
-					break;
-				case "bits":
-					schema.bits = {};
-					for (const key in args[index]) {
-						if (typeof args[index][key] !== "number") continue;
-						schema.bits[key] = args[index][key];
-					}
-					break;
-				case "callback": {
-					const callback = schema.callback = args[index];
-					callback["toJSON"] ||= () => callback.toString();
-					break;
-				}
-				case "constructor": {
-					const constructor = schema.constructor = args[index];
-					if (typeof constructor === "function") constructor["toJSON"] ||= () => constructor["name"];
-					break;
-				}
-				default: schema[key] = args[index];
-			}
-		});
-		if (name === "object" || name === "dict") schema.meta.default = {};
-		else if (name === "array" || name === "tuple") schema.meta.default = [];
-		else if (name === "bitset") schema.meta.default = 0;
-		return schema;
-	} });
-}
-defineMethod("is", ["constructor"], ({ constructor }) => {
-	if (typeof constructor === "function") return constructor.name;
-	else return constructor;
-});
-defineMethod("any", [], () => "any");
-defineMethod("never", [], () => "never");
-defineMethod("const", ["value"], ({ value }) => typeof value === "string" ? JSON.stringify(value) : value);
-defineMethod("string", [], () => "string");
-defineMethod("number", [], () => "number");
-defineMethod("boolean", [], () => "boolean");
-defineMethod("bitset", ["bits"], () => "bitset");
-defineMethod("function", [], () => "function");
-defineMethod("array", ["inner"], ({ inner }) => `${inner.toString(true)}[]`);
-defineMethod("dict", ["inner", "sKey"], ({ inner, sKey }) => `{ [key: ${sKey.toString()}]: ${inner.toString()} }`);
-defineMethod("tuple", ["list"], ({ list }) => `[${list.map((inner) => inner.toString()).join(", ")}]`);
-defineMethod("object", ["dict"], ({ dict }) => {
-	if (Object.keys(dict).length === 0) return "{}";
-	return `{ ${Object.entries(dict).map(([key, inner]) => {
-		return `${key}${inner.meta.required ? "" : "?"}: ${inner.toString()}`;
-	}).join(", ")} }`;
-});
-defineMethod("union", ["list"], ({ list }, inline) => {
-	const result = list.map(({ toString: format }) => format()).join(" | ");
-	return inline ? `(${result})` : result;
-});
-defineMethod("intersect", ["list"], ({ list }) => {
-	return `${list.map((inner) => inner.toString(true)).join(" & ")}`;
-});
-defineMethod("transform", [
-	"inner",
-	"callback",
-	"preserve"
-], ({ inner }, isInner) => inner.toString(isInner));
-//#endregion
+import z from "@deepseek-ai/schemastery";
 //#region src/index.ts
 const name = "dsh-mysql";
-const inject = ["tools", "approval"];
-const Config = Schema.object({
-	enabled: Schema.boolean().default(true),
-	serverName: Schema.string().default("mysql"),
-	allowInsert: Schema.boolean().default(false),
-	allowUpdate: Schema.boolean().default(false),
-	allowDelete: Schema.boolean().default(false),
-	allowAlter: Schema.boolean().default(false),
-	allowTruncate: Schema.boolean().default(false),
-	allowDrop: Schema.boolean().default(false),
-	maxAffectedRows: Schema.number().min(1).default(100)
+/**
+* Only `tools` is required. `approval` is resolved with `ctx.get` at the point
+* of use: a hard dependency would keep `apply` from ever running in a profile
+* without an approval seam, and the write gate would not be installed at all.
+*/
+const inject = ["tools"];
+const Config = z.object({
+	enabled: z.boolean().default(true),
+	serverName: z.string().default("mysql"),
+	allowInsert: z.boolean().default(false),
+	allowUpdate: z.boolean().default(false),
+	allowDelete: z.boolean().default(false),
+	allowAlter: z.boolean().default(false),
+	allowTruncate: z.boolean().default(false),
+	allowDrop: z.boolean().default(false),
+	database: z.string().default(""),
+	allowMultiDbWrites: z.boolean().default(false)
 });
 /** Leading keywords that are unambiguously reads and never need approval. */
-const READ_KEYWORDS = new Set([
+const READ_KEYWORDS = /* @__PURE__ */ new Set([
 	"select",
 	"show",
 	"describe",
 	"desc",
-	"explain",
 	"use",
 	"values",
 	"help"
 ]);
 /** Leading keywords mapped to the switch that permits them. */
-const WRITE_KEYWORDS = new Map([
+const WRITE_KEYWORDS = /* @__PURE__ */ new Map([
 	["insert", "allowInsert"],
 	["replace", "allowInsert"],
 	["load", "allowInsert"],
@@ -831,8 +46,11 @@ const WRITE_KEYWORDS = new Map([
 * Remaining statement-leading keywords that write or change state but have no
 * dedicated switch. They are denied outright, so an operator cannot turn them
 * on by enabling one of the six named toggles.
+*
+* `load` is deliberately absent: it reaches the table-writing `LOAD DATA`
+* forms, so it maps to `allowInsert` above.
 */
-const UNSUPPORTED_WRITE_KEYWORDS = new Set([
+const UNSUPPORTED_WRITE_KEYWORDS = /* @__PURE__ */ new Set([
 	"call",
 	"do",
 	"execute",
@@ -860,56 +78,73 @@ const UNSUPPORTED_WRITE_KEYWORDS = new Set([
 	"handler",
 	"import"
 ]);
+/** How deeply executable comments may nest before their bodies are dropped. */
+const MAX_EXEC_COMMENT_DEPTH = 8;
 /**
-* Split a SQL script into statements on top-level semicolons.
+* Append `sql` to `state`, dropping comments, inlining executable comments, and
+* splitting on top-level semicolons.
 *
-* String literals, quoted identifiers, and comments are copied through
-* untouched so a `;` inside `'a;b'` or inside a comment never splits a
-* statement — mis-splitting would let a write hide behind a read's keyword.
-* @param sql - the script to split.
-* @returns each statement with surrounding whitespace and comments trimmed.
+* String literals, quoted identifiers, and the bodies of ordinary comments are
+* copied through untouched so a `;` inside `'a;b'` or inside a comment never
+* splits a statement — mis-splitting would let a write hide behind a read's
+* keyword (`SELECT 1; -- x\nDROP TABLE t`).
+*
+* MySQL *executes* the body of a version comment (the `/*!` and `/*!50000`
+* forms), so those bodies are scanned as SQL rather than discarded; otherwise
+* `SELECT 1 /*!50000 INTO OUTFILE …` would present itself as a bare read.
+* @param sql - the script text to scan.
+* @param state - accumulator receiving finished statements.
+* @param depth - executable-comment nesting level, bounded by {@link MAX_EXEC_COMMENT_DEPTH}.
 */
-function splitStatements(sql) {
-	const statements = [];
-	let current = "";
+function scanSql(sql, state, depth = 0) {
 	let index = 0;
 	while (index < sql.length) {
 		const char = sql[index];
 		const next = sql[index + 1];
-		if (char === "-" && next === "-") {
-			const end = sql.indexOf("\n", index);
-			index = end === -1 ? sql.length : end + 1;
-			current += " ";
-			continue;
-		}
-		if (char === "#") {
-			const end = sql.indexOf("\n", index);
-			index = end === -1 ? sql.length : end + 1;
-			current += " ";
+		if (char === "/" && next === "*" && sql[index + 2] === "!") {
+			const end = sql.indexOf("*/", index + 3);
+			const close = end === -1 ? sql.length : end;
+			const body = sql.slice(index + 3, close).replace(/^\d{5,6}/, "");
+			state.current += " ";
+			if (depth < MAX_EXEC_COMMENT_DEPTH) scanSql(body, state, depth + 1);
+			state.current += " ";
+			index = end === -1 ? sql.length : end + 2;
 			continue;
 		}
 		if (char === "/" && next === "*") {
 			const end = sql.indexOf("*/", index + 2);
+			state.current += " ";
 			index = end === -1 ? sql.length : end + 2;
-			current += " ";
+			continue;
+		}
+		if (char === "-" && next === "-" && (index + 2 >= sql.length || /[\s\u0000-\u001f]/.test(sql[index + 2]))) {
+			const end = sql.indexOf("\n", index);
+			state.current += " ";
+			index = end === -1 ? sql.length : end + 1;
+			continue;
+		}
+		if (char === "#") {
+			const end = sql.indexOf("\n", index);
+			state.current += " ";
+			index = end === -1 ? sql.length : end + 1;
 			continue;
 		}
 		if (char === "'" || char === "\"" || char === "`") {
 			const quote = char;
-			current += char;
+			state.current += char;
 			index += 1;
 			while (index < sql.length) {
 				const inner = sql[index];
-				current += inner;
+				state.current += inner;
 				index += 1;
 				if (inner === "\\" && quote !== "`") {
-					if (index < sql.length) current += sql[index];
+					if (index < sql.length) state.current += sql[index];
 					index += 1;
 					continue;
 				}
 				if (inner !== quote) continue;
 				if (sql[index] === quote) {
-					current += sql[index];
+					state.current += sql[index];
 					index += 1;
 					continue;
 				}
@@ -918,74 +153,250 @@ function splitStatements(sql) {
 			continue;
 		}
 		if (char === ";") {
-			statements.push(current);
-			current = "";
+			state.statements.push(state.current);
+			state.current = "";
 			index += 1;
 			continue;
 		}
-		current += char;
+		state.current += char;
 		index += 1;
 	}
-	statements.push(current);
-	return statements.map((statement) => statement.trim()).filter((statement) => statement !== "");
 }
-/** The first bare keyword of a stripped statement, lowercased. */
-function leadingKeyword(statement) {
-	const match = /^[A-Za-z_]+/.exec(statement);
-	return match === null ? "" : match[0].toLowerCase();
+/**
+* Split a SQL script into statements on top-level semicolons, with the bodies
+* of executable comments inlined as the SQL they carry.
+* @param sql - the script to split.
+* @returns each statement with surrounding whitespace and comments trimmed.
+*/
+function splitStatements(sql) {
+	const state = {
+		statements: [],
+		current: ""
+	};
+	scanSql(sql, state);
+	state.statements.push(state.current);
+	return state.statements.map((statement) => statement.trim()).filter((statement) => statement !== "");
 }
-/** Whether any top-level word of a statement is one of `keywords`. */
-function containsKeyword(statement, keywords) {
-	const words = statement.match(/[A-Za-z_]+/g);
-	if (words === null) return false;
-	return words.some((word) => keywords.has(word.toLowerCase()));
+/** Placeholder filling a masked quoted identifier; not a keyword character. */
+const IDENTIFIER_FILL = "_";
+/**
+* Blank out the *contents* of every string literal and quoted identifier in one
+* statement, preserving length so offsets still line up.
+*
+* Keyword scans must not read text the server treats as data: without this,
+* `SELECT 'insert'` and `` SELECT 1 FROM `delete` `` look like writes. String
+* literals become spaces; quoted identifiers become {@link IDENTIFIER_FILL}
+* runs, which keeps them recognizable as a single identifier token without ever
+* spelling a keyword.
+* @param statement - one statement, comments already removed.
+* @returns an equal-length copy safe to scan for keywords.
+*/
+function maskLiterals(statement) {
+	let masked = "";
+	let index = 0;
+	while (index < statement.length) {
+		const char = statement[index];
+		if (char !== "'" && char !== "\"" && char !== "`") {
+			masked += char;
+			index += 1;
+			continue;
+		}
+		const quote = char;
+		const start = index;
+		index += 1;
+		while (index < statement.length) {
+			const inner = statement[index];
+			index += 1;
+			if (inner === "\\" && quote !== "`") {
+				index += 1;
+				continue;
+			}
+			if (inner !== quote) continue;
+			if (statement[index] === quote) {
+				index += 1;
+				continue;
+			}
+			break;
+		}
+		const width = index - start;
+		masked += (quote === "`" ? IDENTIFIER_FILL : " ").repeat(width);
+	}
+	return masked;
+}
+/** Whether `char` may appear in a (possibly masked) MySQL identifier. */
+function isIdentifierChar(char) {
+	return char !== void 0 && /[0-9A-Za-z_$\u0080-\uffff]/.test(char);
+}
+/** The bare word starting at `index`, lowercased, or `''` when none starts there. */
+function wordAt(masked, index) {
+	let end = index;
+	while (isIdentifierChar(masked[end])) end += 1;
+	return masked.slice(index, end).toLowerCase();
+}
+/** Advance past whitespace from `index`. */
+function skipSpaces(masked, index) {
+	let cursor = index;
+	while (cursor < masked.length && /\s/.test(masked[cursor])) cursor += 1;
+	return cursor;
+}
+/**
+* Advance past one balanced `( … )` group starting at `index`.
+*
+* Literals are already masked, so parentheses inside strings or identifiers
+* cannot unbalance the count.
+* @param masked - the masked statement.
+* @param index - offset of the opening `(`.
+* @returns the offset just past the matching `)`, or `-1` when unbalanced.
+*/
+function skipBalanced(masked, index) {
+	let depth = 0;
+	let cursor = index;
+	while (cursor < masked.length) {
+		const char = masked[cursor];
+		if (char === "(") depth += 1;
+		else if (char === ")") {
+			depth -= 1;
+			if (depth === 0) return cursor + 1;
+		}
+		cursor += 1;
+	}
+	return -1;
+}
+/**
+* The main verb of a `WITH` (CTE) statement, with the text that follows it.
+*
+* The verb — not any word appearing anywhere in the statement — decides the
+* required switch, so `WITH c AS (SELECT 1) DROP TABLE t` is a DROP and
+* `WITH c AS (SELECT 'insert') SELECT 1` is a plain read. The CTE bodies were
+* already masked, so `insert` inside one is invisible here.
+* @param masked - the masked statement, whose leading word is `with`.
+* @returns the lowercased main verb and its remainder, or `undefined` when the
+*   CTE header cannot be parsed.
+*/
+function cteHead(masked) {
+	let cursor = skipSpaces(masked, wordAt(masked, 0) === "with" ? 4 : 0);
+	if (wordAt(masked, cursor) === "recursive") cursor = skipSpaces(masked, cursor + 9);
+	for (let guard = 0; guard < 512; guard += 1) {
+		cursor = skipSpaces(masked, cursor);
+		const name = wordAt(masked, cursor);
+		if (name === "") return void 0;
+		cursor = skipSpaces(masked, cursor + name.length);
+		if (masked[cursor] === "(") {
+			const afterColumns = skipBalanced(masked, cursor);
+			if (afterColumns === -1) return void 0;
+			cursor = skipSpaces(masked, afterColumns);
+		}
+		if (wordAt(masked, cursor) !== "as") return void 0;
+		cursor = skipSpaces(masked, cursor + 2);
+		if (masked[cursor] !== "(") return void 0;
+		const afterBody = skipBalanced(masked, cursor);
+		if (afterBody === -1) return void 0;
+		cursor = skipSpaces(masked, afterBody);
+		if (masked[cursor] !== ",") return {
+			verb: wordAt(masked, cursor),
+			rest: masked.slice(cursor)
+		};
+		cursor += 1;
+	}
+}
+/**
+* Strip an `EXPLAIN` clause from a masked statement.
+*
+* `EXPLAIN ANALYZE INSERT …` really executes the INSERT, and plain
+* `EXPLAIN INSERT …` is still a statement about a write, so the remainder is
+* classified on its own. `EXPLAIN FOR CONNECTION n` inspects a running session
+* and has no statement to classify.
+* @param masked - the masked statement, whose leading word is `explain`.
+* @returns the masked remainder, or `''` when nothing executable follows.
+*/
+function stripExplainPrefix(masked) {
+	let cursor = skipSpaces(masked, 0);
+	if (wordAt(masked, cursor) !== "explain") return "";
+	cursor = skipSpaces(masked, cursor + 7);
+	for (let guard = 0; guard < 16; guard += 1) {
+		const word = wordAt(masked, cursor);
+		if (word === "analyze" || word === "extended" || word === "partitions") {
+			cursor = skipSpaces(masked, cursor + word.length);
+			continue;
+		}
+		if (word === "format") {
+			cursor = skipSpaces(masked, cursor + word.length);
+			if (masked[cursor] === "=") cursor += 1;
+			cursor = skipSpaces(masked, cursor);
+			const format = wordAt(masked, cursor);
+			if (format === "") return "";
+			cursor = skipSpaces(masked, cursor + format.length);
+			continue;
+		}
+		if (word === "for") return "";
+		break;
+	}
+	return masked.slice(cursor);
+}
+/**
+* Classify one already-split statement.
+* @param masked - the statement's masked text.
+* @returns the approval requirement the statement carries.
+*/
+function classifyMasked(masked) {
+	const keyword = wordAt(masked, skipSpaces(masked, 0));
+	if (keyword === "explain") {
+		const remainder = stripExplainPrefix(masked);
+		if (remainder.trim() === "") return { kind: "read" };
+		return classifyMasked(remainder);
+	}
+	if (keyword === "with") {
+		const head = cteHead(masked);
+		if (head === void 0 || head.verb === "") return {
+			kind: "unsupported",
+			keyword: "with"
+		};
+		return classifyMasked(head.rest);
+	}
+	if (keyword === "select") {
+		if (/\binto\s+(?:outfile|dumpfile)\b/i.test(masked)) return {
+			kind: "file",
+			keyword: "select … into outfile"
+		};
+		if (/\bfor\s+update\b/i.test(masked) || /\block\s+in\s+share\s+mode\b/i.test(masked)) return {
+			kind: "write",
+			setting: "allowUpdate"
+		};
+		return { kind: "read" };
+	}
+	if (READ_KEYWORDS.has(keyword)) return { kind: "read" };
+	const setting = WRITE_KEYWORDS.get(keyword);
+	if (setting !== void 0) return {
+		kind: "write",
+		setting
+	};
+	if (UNSUPPORTED_WRITE_KEYWORDS.has(keyword)) return {
+		kind: "unsupported",
+		keyword
+	};
+	return {
+		kind: "unsupported",
+		keyword: keyword === "" ? "(unparsable)" : keyword
+	};
 }
 /**
 * Classify one submitted SQL script.
 *
-* A script may hold several `;`-separated statements, so the verdict is the
-* strictest one any statement produces: one write makes the whole script a
-* write, and one unsupported keyword denies the whole script.
+* A script must hold exactly one statement. MySQL's driver already rejects
+* multi-statement payloads, and judging several statements by one verdict would
+* mean one switch silently authorizing the others, so a multi-statement script
+* is refused with a message that says what to do instead.
 * @param sql - the script from the tool call's `sql` argument.
 * @returns the approval requirement the script carries.
 */
 function classifySql(sql) {
 	const statements = splitStatements(sql);
 	if (statements.length === 0) return { kind: "empty" };
-	let write;
-	for (const statement of statements) {
-		const keyword = leadingKeyword(statement);
-		if (keyword === "with") {
-			const nested = [...WRITE_KEYWORDS.keys()].find((candidate) => new RegExp(`\\b${candidate}\\b`, "i").test(statement));
-			if (nested !== void 0) {
-				write ??= WRITE_KEYWORDS.get(nested);
-				continue;
-			}
-			if (containsKeyword(statement, READ_KEYWORDS)) continue;
-			return {
-				kind: "unsupported",
-				keyword
-			};
-		}
-		if (READ_KEYWORDS.has(keyword)) continue;
-		const setting = WRITE_KEYWORDS.get(keyword);
-		if (setting !== void 0) {
-			write ??= setting;
-			continue;
-		}
-		if (UNSUPPORTED_WRITE_KEYWORDS.has(keyword)) return {
-			kind: "unsupported",
-			keyword
-		};
-		return {
-			kind: "unsupported",
-			keyword: keyword === "" ? "(unparsable)" : keyword
-		};
-	}
-	return write === void 0 ? { kind: "read" } : {
-		kind: "write",
-		setting: write
+	if (statements.length > 1) return {
+		kind: "multiple",
+		count: statements.length
 	};
+	return classifyMasked(maskLiterals(statements[0]));
 }
 /** The `sql` argument of a call, when the call carries one. */
 function sqlArgument(exec) {
@@ -1005,10 +416,15 @@ function safeSummary(exec) {
 	return `MySQL statement via ${exec.name}: ${rendered.slice(0, 4e3)}`;
 }
 function apply(ctx, config = {}) {
-	if (config.enabled === false) return;
 	const prefix = `mcp__${config.serverName ?? "mysql"}__`;
+	/** Set once the no-approval warning has been logged, so it is not repeated per call. */
+	let warnedNoApproval = false;
 	ctx.on("tools/pre-execute", async (exec, next) => {
 		if (!exec.name.startsWith(prefix)) return next();
+		if (config.enabled === false) return {
+			kind: "deny",
+			reason: "MYSQL_BRIDGE_DISABLED: this MySQL bridge is switched off (enabled: false), so no statement runs through it. Remove the plugin rows instead if the tools should be gone entirely."
+		};
 		const sql = sqlArgument(exec);
 		if (sql === void 0) return {
 			kind: "deny",
@@ -1020,19 +436,42 @@ function apply(ctx, config = {}) {
 			kind: "deny",
 			reason: "MYSQL_SQL_UNREADABLE: the \"sql\" argument held no statement."
 		};
+		if (verdict.kind === "multiple") return {
+			kind: "deny",
+			reason: `MYSQL_MULTI_STATEMENT: ${verdict.count} statements were submitted, and this bridge runs exactly one per call. Submit them one at a time so each carries its own authorization decision.`
+		};
 		if (verdict.kind === "unsupported") return {
 			kind: "deny",
 			reason: `MYSQL_WRITE_AUTH_REQUIRED: "${verdict.keyword}" statements are not permitted through this bridge; only SELECT/SHOW/DESCRIBE/EXPLAIN reads and the six explicitly enabled write kinds may run.`
+		};
+		if (verdict.kind === "file") return {
+			kind: "deny",
+			reason: `MYSQL_FILE_WRITE_DENIED: ${verdict.keyword} writes a file on the database host. That capability has no enable switch here; use a direct database client instead.`
 		};
 		if (config[verdict.setting] !== true) return {
 			kind: "deny",
 			reason: `MYSQL_WRITE_AUTH_REQUIRED: ${verdict.setting} is off, so this statement is disabled. Enable it in the profile configuration and set the matching environment variable.`
 		};
+		if ((config.database ?? "") === "" && config.allowMultiDbWrites !== true) return {
+			kind: "deny",
+			reason: `MYSQL_MULTI_DB_WRITE_DENIED: no database is pinned (MYSQL_DB is empty), so the target schema is taken from the statement and ${verdict.setting} would allow this write against any reachable schema. Pin DSH_MYSQL_DATABASE, or set allowMultiDbWrites with SCHEMA_*_PERMISSIONS to narrow it deliberately.`
+		};
 		if (exec.agent === void 0) return {
 			kind: "deny",
 			reason: `MYSQL_WRITE_AUTH_REQUIRED: ${exec.name} has no agent to route an approval through.`
 		};
-		const outcome = await ctx.approval.request({
+		const approval = ctx.get("approval");
+		if (approval === void 0) {
+			if (!warnedNoApproval) {
+				warnedNoApproval = true;
+				ctx.logger("dsh-mysql").warn("no approval service is mounted, so every enabled MySQL write will be denied; compose @deepseek-ai/dsh-user-approval (or disable the write toggles) to allow them");
+			}
+			return {
+				kind: "deny",
+				reason: "MYSQL_WRITE_AUTH_REQUIRED: no approval channel is available in this profile, so the write is refused. Compose an approval service or turn the write toggle off."
+			};
+		}
+		const outcome = await approval.request({
 			agent: exec.agent,
 			toolName: exec.name,
 			callId: exec.callId,
@@ -1052,6 +491,6 @@ var src_default = {
 	apply
 };
 //#endregion
-export { Config, apply, classifySql, src_default as default, inject, name, splitStatements };
+export { Config, apply, classifySql, cteHead, src_default as default, inject, maskLiterals, name, splitStatements };
 
 //# sourceMappingURL=index.js.map

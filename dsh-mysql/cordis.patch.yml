@@ -4,11 +4,8 @@
 # launches the upstream MySQL server. Both take their switches from the
 # environment, so this file stays credential-free and safe to commit.
 #
-# YAML NOTE — read before editing the `env` value below. `!!js` is declared as
-# a *scalar* tag by the DSH overlay dialect, so a multi-line object must use the
-# `|` block form. A parenthesised flow mapping spanning several lines is not
-# valid YAML: the profile fails to parse at boot and DSH refuses to start at
-# all. Keep every `!!js` value a single scalar.
+# YAML NOTE — `!!js` is a scalar tag. Keep each expression on one value;
+# do not wrap a whole mapping in `!!js |`.
 - insert:
     - id: dsh-mysql-authorization
       name: '@wzxm/dsh-mysql'
@@ -17,6 +14,11 @@
         # Must match the mcp-client row's `serverName`; the seam derives the
         # `mcp__<serverName>__` tool prefix from it.
         serverName: mysql
+        # Mirrors MYSQL_DB below. Empty means multi-DB mode, where a write is
+        # allowed against any reachable schema — the seam refuses writes in that
+        # state unless DSH_MYSQL_ALLOW_MULTI_DB_WRITES is set.
+        database: !!js process.env.DSH_MYSQL_DATABASE ?? ''
+        allowMultiDbWrites: !!js process.env.DSH_MYSQL_ALLOW_MULTI_DB_WRITES === 'true'
         allowInsert: !!js process.env.DSH_MYSQL_ALLOW_INSERT === 'true'
         allowUpdate: !!js process.env.DSH_MYSQL_ALLOW_UPDATE === 'true'
         allowDelete: !!js process.env.DSH_MYSQL_ALLOW_DELETE === 'true'
@@ -36,35 +38,29 @@
         # MYSQL_DATABASE), and gates writes behind its own ALLOW_*_OPERATION
         # switches. Those mirrors must agree with the seam row above: a write
         # the seam permits is still refused by the server unless its twin is on.
-        env: !!js |
-          ({
-            MYSQL_HOST: process.env.DSH_MYSQL_HOST ?? '127.0.0.1',
-            MYSQL_PORT: process.env.DSH_MYSQL_PORT ?? '3306',
-            MYSQL_USER: process.env.DSH_MYSQL_USER ?? '',
-            MYSQL_PASS: process.env.DSH_MYSQL_PASSWORD ?? '',
-            MYSQL_DB: process.env.DSH_MYSQL_DATABASE ?? '',
-            ALLOW_INSERT_OPERATION: process.env.DSH_MYSQL_ALLOW_INSERT === 'true' ? 'true' : 'false',
-            ALLOW_UPDATE_OPERATION: process.env.DSH_MYSQL_ALLOW_UPDATE === 'true' ? 'true' : 'false',
-            ALLOW_DELETE_OPERATION: process.env.DSH_MYSQL_ALLOW_DELETE === 'true' ? 'true' : 'false',
-            ALLOW_DDL_OPERATION: [
-              'DSH_MYSQL_ALLOW_ALTER',
-              'DSH_MYSQL_ALLOW_TRUNCATE',
-              'DSH_MYSQL_ALLOW_DROP',
-            ].some(name => process.env[name] === 'true') ? 'true' : 'false',
-            // The server otherwise pins every session to READ ONLY and rolls
-            // back, so writes cannot succeed without this. Enable it only when
-            // a write is actually switched on.
-            MYSQL_DISABLE_READ_ONLY_TRANSACTIONS: [
-              'DSH_MYSQL_ALLOW_INSERT',
-              'DSH_MYSQL_ALLOW_UPDATE',
-              'DSH_MYSQL_ALLOW_DELETE',
-              'DSH_MYSQL_ALLOW_ALTER',
-              'DSH_MYSQL_ALLOW_TRUNCATE',
-              'DSH_MYSQL_ALLOW_DROP',
-            ].some(name => process.env[name] === 'true') ? 'true' : 'false',
-          })
+        env:
+          MYSQL_HOST: !!js process.env.DSH_MYSQL_HOST ?? '127.0.0.1'
+          MYSQL_PORT: !!js process.env.DSH_MYSQL_PORT ?? '3306'
+          MYSQL_USER: !!js process.env.DSH_MYSQL_USER ?? ''
+          MYSQL_PASS: !!js process.env.DSH_MYSQL_PASSWORD ?? ''
+          MYSQL_DB: !!js process.env.DSH_MYSQL_DATABASE ?? ''
+          ALLOW_INSERT_OPERATION: !!js "process.env.DSH_MYSQL_ALLOW_INSERT === 'true' ? 'true' : 'false'"
+          ALLOW_UPDATE_OPERATION: !!js "process.env.DSH_MYSQL_ALLOW_UPDATE === 'true' ? 'true' : 'false'"
+          ALLOW_DELETE_OPERATION: !!js "process.env.DSH_MYSQL_ALLOW_DELETE === 'true' ? 'true' : 'false'"
+          ALLOW_DDL_OPERATION: !!js "process.env.DSH_MYSQL_ALLOW_ALTER === 'true' || process.env.DSH_MYSQL_ALLOW_TRUNCATE === 'true' || process.env.DSH_MYSQL_ALLOW_DROP === 'true' ? 'true' : 'false'"
+          # The server otherwise pins every session to READ ONLY and rolls back,
+          # so writes cannot succeed without this. It is enabled only while a
+          # write toggle is on, and the seam refuses multi-DB writes on top.
+          MYSQL_DISABLE_READ_ONLY_TRANSACTIONS: !!js "process.env.DSH_MYSQL_ALLOW_INSERT === 'true' || process.env.DSH_MYSQL_ALLOW_UPDATE === 'true' || process.env.DSH_MYSQL_ALLOW_DELETE === 'true' || process.env.DSH_MYSQL_ALLOW_ALTER === 'true' || process.env.DSH_MYSQL_ALLOW_TRUNCATE === 'true' || process.env.DSH_MYSQL_ALLOW_DROP === 'true' ? 'true' : 'false'"
+          # Per-schema narrowing, in the server's own `schema:true,schema2:false`
+          # form. Without these the four ALLOW_* switches above are all-or-nothing
+          # across every schema the account can reach, which is what
+          # allowMultiDbWrites relies on; with them it becomes per-schema.
+          SCHEMA_INSERT_PERMISSIONS: !!js process.env.DSH_MYSQL_SCHEMA_INSERT_PERMISSIONS ?? ''
+          SCHEMA_UPDATE_PERMISSIONS: !!js process.env.DSH_MYSQL_SCHEMA_UPDATE_PERMISSIONS ?? ''
+          SCHEMA_DELETE_PERMISSIONS: !!js process.env.DSH_MYSQL_SCHEMA_DELETE_PERMISSIONS ?? ''
+          SCHEMA_DDL_PERMISSIONS: !!js process.env.DSH_MYSQL_SCHEMA_DDL_PERMISSIONS ?? ''
         # `false` keeps a missing npm registry or an unreachable database from
         # taking the whole harness down: the client retries in the background
-        # and the rest of the profile boots normally. Set `true` only if this
-        # deployment must refuse to start without MySQL.
+        # and the rest of the profile boots normally.
         failOnStartupError: false
