@@ -1,0 +1,20 @@
+dsh-mysql/package.json
+  s_b279e1dde7031d::t_adbadf25735143 4,18-23
+  s_b279e1dde7031d::t_69d23337ab11da 24-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c97d10876835da981cb9d66399084cb105ff2b8c",
+  "prompts": {},
+  "sessions": {
+    "s_b279e1dde7031d": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3d1d5bf7-89be-441d-9c64-00e33ed1587e",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
