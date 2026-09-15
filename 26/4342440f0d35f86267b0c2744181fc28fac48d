@@ -1,0 +1,29 @@
+README.md
+  s_c9480e46868f00::t_8ef6e8419753ea 8
+.vscode/settings.json
+  s_8aba956c2439a1::t_2ba415c446f35c 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "264342440f0d35f86267b0c2744181fc28fac48d",
+  "prompts": {},
+  "sessions": {
+    "s_8aba956c2439a1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a68ef580-a4a0-40dd-95be-eaa484480b5a",
+        "model": "grok-4.6"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    },
+    "s_c9480e46868f00": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09f05-2d3d-7e73-851f-35cbbec0dd00",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
