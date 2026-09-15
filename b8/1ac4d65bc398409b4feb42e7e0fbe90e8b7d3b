@@ -1,0 +1,49 @@
+dsh-im/lib/feishu-D_fJmJcC.d.ts
+  s_a22e727712e36f::t_fa0c95e8f3e264 1-235
+dsh-im/lib/feishu-D_fJmJcC.d.ts.map
+  s_a22e727712e36f::t_0db44a34bb06b8 1
+dsh-im/lib/index.d.ts
+  s_a22e727712e36f::t_cca709906d286c 1
+dsh-im/lib/index.d.ts.map
+  s_a22e727712e36f::t_157a5dabf4c0a4 1
+dsh-im/lib/transport-feishu.d.ts
+  s_a22e727712e36f::t_6ea6aa8feb9b6c 1-188
+dsh-im/lib/transport-feishu.d.ts.map
+  s_a22e727712e36f::t_5ac816f70a8bf3 1
+dsh-im/lib/transport-feishu.js
+  s_a22e727712e36f::t_8cc8be1374a2bf 1-161
+dsh-im/lib/transport-feishu.js.map
+  s_a22e727712e36f::t_5411510b2535b1 1
+dsh-im/lib/transport-memory.d.ts
+  s_a22e727712e36f::t_732ec43070433e 1-50
+dsh-im/lib/transport-memory.d.ts.map
+  s_a22e727712e36f::t_b63e528ae92465 1
+dsh-im/lib/transport-memory.js
+  s_a22e727712e36f::t_72adc89adb3e3a 1-86
+dsh-im/lib/transport-memory.js.map
+  s_a22e727712e36f::t_b25ff373470c09 1
+dsh-im/lib/transport.d.ts
+  s_a22e727712e36f::t_5d2b6b4816f0e3 1-116
+dsh-im/lib/transport.d.ts.map
+  s_a22e727712e36f::t_26ffd1f925b4e2 1
+dsh-im/lib/transport.js
+  s_a22e727712e36f::t_c94a14d10e6b6a 1-19
+dsh-im/lib/transport.js.map
+  s_a22e727712e36f::t_50e04c1369867b 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b81ac4d65bc398409b4feb42e7e0fbe90e8b7d3b",
+  "prompts": {},
+  "sessions": {
+    "s_a22e727712e36f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "689c885b-c6eb-4888-a47a-eaab2280c8fc",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "王哲 <wangzhe@mogulinker.com>"
+    }
+  }
+}
