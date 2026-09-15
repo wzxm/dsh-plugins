@@ -1,23 +1,32 @@
 /**
  * dsh-im — Feishu/Lark IM adapter for DeepSeek Harness.
  *
- * The plugin owns two exact routes on the injected WebServer: the event callback
- * and the OAuth redirect. Both are the application's own endpoints — a webhook
- * is authenticated by its signature, not by the browser session that guards
- * `/api`, so neither sits behind the connection trust fence by design.
+ * The transport is owned by this plugin and lives at its scope. A WS connection
+ * is one-per-process, so a second plugin instance would compete for the same
+ * socket. That is by design: two instances are two presets, and a preset
+ * contributes capabilities but never owns platform infrastructure.
  *
- * ## Why `webhookRuntime` is optional
+ * ## Webhook mode is removed
  *
- * The harness webhook runtime is the natural destination for an inbound message,
- * but **no shipped bundle composes it**. Declaring it in `inject` would park this
- * plugin in PENDING forever: `apply` would never run, so the routes below would
- * never register and the adapter would be silently absent. It is therefore read
- * with `ctx.get` at dispatch time, and a profile without it logs a warning
- * instead of going dark.
+ * The earlier design used HTTP callbacks with signature verification, AES
+ * decryption, and a self-owned reply loop. That path is gone: under the
+ * WebSocket transport the SDK authenticates the socket by app secret, and
+ * Feishu pushes events through the WS channel with no inbound HTTP at all.
  *
- * The same reasoning applies to `credentials`: secrets are resolved per request
- * and a profile without a credential provider falls back to the composition
- * entry itself.
+ * The HTTP routes remain for the handshake endpoint, but only for the OAuth
+ * callback — the code-exchange redirect that completes the onboarding flow.
+ *
+ * ## Dependencies
+ *
+ * Only `webServer` is a hard dependency: it is needed for the OAuth callback
+ * route, and there is nothing to do without it.
+ *
+ * The Agent stack (`agents`, `agentPresets`, `agentDefaultModel`,
+ * `permissionPresets`, `sessionTitle`, `workspaceRegistry`) is requested with
+ * `ctx.inject`, which parks its callback until every service exists instead of
+ * blocking `apply`. So the routes always register, and the dispatcher is built
+ * lazily on the first message — by which point the stack is ready. When the
+ * stack is absent, messages are acknowledged and a warning is logged once.
  *
  * @module @wzxm/dsh-im
  */
@@ -33,10 +42,9 @@ import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-workspace'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import z from '@deepseek-ai/schemastery'
-import { createFeishuApi, type FeishuApi } from './feishu-api.ts'
 import { createDispatcher, type DispatchResult } from './dispatch.ts'
-import { createFeishuHandler } from './handler.ts'
 import type { NormalizedMessage } from './event.ts'
+import type { ImTransport } from './transport.ts'
 
 export * from './event.ts'
 export * from './feishu.ts'
@@ -47,39 +55,39 @@ export * from './session-bridge.ts'
 export * from './dispatch.ts'
 export * from './bot-store.ts'
 export * from './quick-onboarding.ts'
+export * from './transport.ts'
+export * from './transport-memory.ts'
+export * from './transport-feishu.ts'
 
 export const name = 'dsh-im'
 
 /**
- * Only the web server is a hard dependency: it is the socket this plugin
- * registers on, and there is nothing to do without it.
+ * Only the web server is a hard dependency: it is needed for the OAuth callback
+ * route, which is the only remaining HTTP endpoint.
  */
 export const inject = ['webServer']
 
 export interface Config {
-  /** Exact absolute path for Feishu event callbacks. */
-  callbackPath: string
-  /** Exact absolute path for the OAuth redirect. */
+  /** Exact absolute path for the Feishu OAuth callback. */
   oauthCallbackPath: string
   /**
-   * Credential reference holding the Feishu Encrypt Key. When present, inbound
-   * callbacks are signature-verified and decrypted. Empty disables both, which
-   * is only appropriate for a trusted local tunnel during setup.
+   * Credential reference holding the app_id of the Feishu/Lark bot.
+   *
+   * Required for the WebSocket transport; without it the plugin cannot connect
+   * and logs a warning instead. May be left empty when onboarding has not
+   * completed yet.
    */
-  encryptKeyRef?: string
-  /** Credential reference holding the Verification Token. */
-  verificationTokenRef?: string
-  /** Credential reference holding the app_id, used for token exchanges. */
   appIdRef?: string
   /** Credential reference holding the app_secret. */
   appSecretRef?: string
+  /** Which brand to use: `feishu` or `lark`. Defaults to `feishu`. */
+  domain?: string
   /**
-   * The bot's own `open_id`, matched against group-message mentions.
+   * The bot's own `open_id`.
    *
-   * This cannot be discovered from an inbound callback: Feishu identifies the
-   * *author* of a mention, never the reader. Without it every group message is
-   * discarded (a group message that does not mention the bot is not for us), so
-   * it is required for group use even though p2p works without it.
+   * Under WebSocket transport the SDK discovers this automatically via
+   * `GET /open-apis/bot/v3/info` during `connect()`, so configuring it here
+   * is optional. A value supplied here overrides the auto-detected one.
    */
   botOpenId?: string
   /** Bot instance id; scopes conversation keys so two bots never share a Session. */
@@ -92,30 +100,19 @@ export interface Config {
   permissionPreset?: string
   /** Ceiling on one reply, in characters, before truncation. */
   maxReplyChars?: number
-  /** Raw callback body ceiling in bytes. */
-  maxBodyBytes?: number
 }
 
-/** Validate route and ref facts a schema cannot express. */
+/** Validate config facts a schema cannot express. */
 function assertConfig (config: Config): void {
-  for (const [field, value] of [
-    ['callbackPath', config.callbackPath],
-    ['oauthCallbackPath', config.oauthCallbackPath],
-  ] as const) {
-    if (!value.startsWith('/') || value === '/' || value.endsWith('/')
-      || value.includes('?') || value.includes('#')) {
+  if (config.oauthCallbackPath !== undefined && config.oauthCallbackPath !== '') {
+    if (!config.oauthCallbackPath.startsWith('/') || config.oauthCallbackPath === '/'
+      || config.oauthCallbackPath.endsWith('/')
+      || config.oauthCallbackPath.includes('?') || config.oauthCallbackPath.includes('#')) {
       throw new Error(
-        `dsh-im ${field} must be an absolute non-root pathname without a trailing slash, query, or fragment`,
+        `dsh-im oauthCallbackPath must be an absolute non-root pathname without a trailing slash, query, or fragment`,
       )
     }
   }
-  if (config.callbackPath === config.oauthCallbackPath) {
-    throw new Error('dsh-im callbackPath and oauthCallbackPath must differ')
-  }
-  // The workspace registry rejects a relative path, and a Session created with a
-  // bad cwd fails only once a message arrives. Validating at activation turns a
-  // silent per-message failure into a startup error. `assertConfig` runs on the
-  // pre-default config, so an absent value is fine here.
   if (config.workspacePath !== undefined && config.workspacePath !== ''
     && !isAbsolute(config.workspacePath)) {
     throw new Error(
@@ -136,23 +133,20 @@ function assertConfig (config: Config): void {
  * plugin exports one).
  */
 export const Config: z<Required<Config>> = z.object({
-  callbackPath: z.string().default('/webhooks/feishu'),
   oauthCallbackPath: z.string().default('/oauth/feishu/callback'),
-  encryptKeyRef: z.string().default(''),
-  verificationTokenRef: z.string().default(''),
   appIdRef: z.string().default(''),
   appSecretRef: z.string().default(''),
+  domain: z.string().default('feishu'),
   botOpenId: z.string().default(''),
   botId: z.string().default('feishu'),
   workspacePath: z.string().default(''),
   agentPreset: z.string().default('standard'),
   permissionPreset: z.string().default('default'),
   maxReplyChars: z.natural().default(4000),
-  maxBodyBytes: z.natural().default(1_048_576),
 })
 
 /**
- * Resolve one optional credential reference.
+ * Resolve one credential reference.
  * @param ctx - plugin context supplying the credential provider, if any.
  * @param ref - the reference name; empty means "not configured".
  * @returns the secret value, or `undefined`.
@@ -162,14 +156,10 @@ async function resolveSecret (
   ref: string
 ): Promise<string | undefined> {
   if (ref === '') return undefined
-  // A name outside the credential grammar has no reference to miss, so it reads
-  // as "not configured" instead of throwing from deep inside the provider. The
-  // grammar is a POSIX shell identifier (e.g. `FEISHU_ENCRYPT_KEY`), which a
-  // hyphenated name like `feishu-encrypt-key` would violate.
   if (!isCredentialRefName(ref)) {
     ctx.logger.warn(
       `dsh-im: credential ref "${ref}" is not a valid name; use a shell-style `
-      + 'identifier such as FEISHU_ENCRYPT_KEY',
+      + 'identifier such as FEISHU_APP_ID',
     )
     return undefined
   }
@@ -194,24 +184,18 @@ export function apply (ctx: Context, config: Config): void {
   const resolved = config as Required<Config>
 
   /**
-   * Secrets are read once at activation. Re-resolving per request would make
-   * every callback depend on the credential provider staying responsive, and a
-   * rotated key can be picked up by reloading the plugin.
+   * The transport — set once async init completes, then reused for the lifetime
+   * of the plugin. A restart of the plugin (update or reload) discards it.
    */
-  let encryptKey: string | undefined
-  let verificationToken: string | undefined
-  /** Fixed at activation; a changed open_id needs a plugin reload anyway. */
-  const botOpenId = resolved.botOpenId
+  let transport: ImTransport | undefined
 
   /** Set once the dispatcher is wired by the Agent-stack injection below. */
   let dispatch: ((message: NormalizedMessage) => Promise<DispatchResult>) | undefined
-  /** Set once the app credentials resolve into a usable API client. */
-  let api: FeishuApi | undefined
   /** The Agent stack context, supplied by `ctx.inject` when those services exist. */
   let agentStack: Context | undefined
   /** Logged once each, so a busy callback cannot flood the log. */
   let warnedNoStack = false
-  let warnedNoApi = false
+  let warnedNoTransport = false
 
   const onMessage = async (message: NormalizedMessage): Promise<void> => {
     if (agentStack === undefined) {
@@ -225,17 +209,17 @@ export function apply (ctx: Context, config: Config): void {
       }
       return
     }
-    if (api === undefined) {
-      if (!warnedNoApi) {
-        warnedNoApi = true
+    if (transport === undefined) {
+      if (!warnedNoTransport) {
+        warnedNoTransport = true
         ctx.logger.warn(
-          'dsh-im: no Feishu app credentials are configured, so replies cannot be '
-          + 'sent; set appIdRef and appSecretRef',
+          'dsh-im: no Feishu transport is connected, so replies cannot be sent; '
+          + 'check appIdRef and appSecretRef',
         )
       }
       return
     }
-    // Built lazily on first use: the Agent stack and the credentials resolve
+    // Built lazily on first use: the Agent stack and the transport init resolve
     // independently and in either order, so a single "both are ready" hook would
     // be wrong. This also keeps the queue and Agent map alive across messages,
     // which is what gives a conversation Session continuity.
@@ -245,7 +229,21 @@ export function apply (ctx: Context, config: Config): void {
       agentPreset: resolved.agentPreset,
       permissionPreset: resolved.permissionPreset,
       maxReplyChars: resolved.maxReplyChars,
-    }, api)
+    }, {
+      // A transport-backed adapter satisfying the FeishuApi contract needed by
+      // dispatch.ts. The transport owns authentication, so no token mints here.
+      tenantToken: async () => '',
+      authorize: async () => { throw new Error('not available over WebSocket') },
+      sendText: async (_token, target, text, replyTo) => {
+        // Guard: by the time a message reaches dispatch, the transport must be
+        // connected. If it isn't, the warning branch above caught it before
+        // creating the dispatcher; this assertion exists because TypeScript
+        // cannot track that temporal safety through the closure.
+        await (transport as ImTransport).sendText(
+          target, text, replyTo === undefined ? {} : { replyTo },
+        )
+      },
+    })
 
     const result = await dispatch(message)
     if (!result.replied) {
@@ -255,43 +253,28 @@ export function apply (ctx: Context, config: Config): void {
     }
   }
 
-  const handler = createFeishuHandler(ctx, {
-    get encryptKey () { return encryptKey },
-    get verificationToken () { return verificationToken },
-    get botOpenId () { return botOpenId },
-    maxBodyBytes: resolved.maxBodyBytes,
-    onMessage,
-  })
-
-  ctx.effect(
-    () => ctx.webServer.register({
-      kind: 'exact',
-      path: resolved.callbackPath,
-      handler,
-    }),
-    `dsh-im: ${resolved.callbackPath}`,
-  )
-
-  ctx.effect(
-    () => ctx.webServer.register({
-      kind: 'exact',
-      path: resolved.oauthCallbackPath,
-      handler: (_req, res) => {
-        // The OAuth redirect is answered 501 until the code exchange is wired to
-        // a bot store; failing loudly beats accepting a code nothing consumes.
-        res.statusCode = 501
-        res.setHeader('content-type', 'text/plain; charset=utf-8')
-        res.end('OAuth callback is not wired to a bot store yet')
-      },
-    }),
-    `dsh-im: ${resolved.oauthCallbackPath}`,
-  )
+  // OAuth callback route — the only remaining HTTP endpoint. All traffic goes
+  // through the WebSocket connection instead.
+  if (resolved.oauthCallbackPath !== '') {
+    ctx.effect(
+      () => ctx.webServer.register({
+        kind: 'exact',
+        path: resolved.oauthCallbackPath,
+        handler: (_req, res) => {
+          res.statusCode = 501
+          res.setHeader('content-type', 'text/plain; charset=utf-8')
+          res.end('OAuth callback is not wired to a bot store yet')
+        },
+      }),
+      `dsh-im: ${resolved.oauthCallbackPath}`,
+    )
+  }
 
   /**
    * Wire the dispatcher once the Agent stack exists.
    *
    * `ctx.inject` (rather than a hard `inject` on this plugin) keeps route
-   * registration independent of the Agent stack: the callback route must answer
+   * registration independent of the Agent stack: the OAuth callback must answer
    * in a profile that has no agent loop, and the ordering between this plugin
    * and the bundle rows providing these services is not guaranteed.
    */
@@ -302,22 +285,70 @@ export function apply (ctx: Context, config: Config): void {
     },
   )
 
-  // Secrets resolve asynchronously after the routes exist, so a slow credential
-  // provider cannot delay registration. Requests arriving first are answered
-  // fail-closed by the handler.
+  // Build the transport once credentials resolve, then connect it.
   void (async () => {
     try {
-      encryptKey = await resolveSecret(ctx, resolved.encryptKeyRef)
-      verificationToken = await resolveSecret(ctx, resolved.verificationTokenRef)
       const appId = await resolveSecret(ctx, resolved.appIdRef)
       const appSecret = await resolveSecret(ctx, resolved.appSecretRef)
       if (appId !== undefined && appSecret !== undefined) {
-        api = createFeishuApi({ appId, appSecret })
+        if (transport !== undefined) {
+          // If init runs twice (should not happen, but guards against it), the
+          // second transport replaces the first.
+          await transport.dispose()
+        }
+        const { createFeishuTransport } = await import('./transport-feishu.ts')
+        transport = await createFeishuTransport({
+          appId,
+          appSecret,
+          domain: resolved.domain as 'feishu' | 'lark',
+          logger: {
+            debug: (m: string) => ctx.logger.debug('[dsh-im] ' + m),
+            info: (m: string) => ctx.logger.info('[dsh-im] ' + m),
+            warn: (m: string) => ctx.logger.warn('[dsh-im] ' + m),
+            error: (m: string) => ctx.logger.error('[dsh-im] ' + m),
+          },
+        })
+
+        transport.onMessage(onMessage)
+
+        // Report connection state changes at the plugin level.
+        transport.onConnectionChange((state) => {
+          ctx.logger.info(`dsh-im: Feishu connection state -> ${state}`)
+        })
+
+        // Report rejected (policy-withheld) messages.
+        transport.onReject((rejected) => {
+          ctx.logger.info(
+            `dsh-im: message ${rejected.messageId} rejected (${rejected.reason})`,
+          )
+        })
+
+        await transport.connect()
+        ctx.logger.info('dsh-im: Feishu WebSocket transport connected')
+      } else {
+        ctx.logger.info(
+          'dsh-im: Feishu credentials not configured; transport not started. '
+          + 'Set appIdRef and appSecretRef, or trigger the onboarding flow.',
+        )
       }
     } catch (error: unknown) {
-      ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+      ctx.logger.warn(
+        'dsh-im: failed to start Feishu transport: '
+        + (error instanceof Error ? error.message : String(error)),
+      )
     }
   })()
+
+  // Teardown: release the transport when the plugin stops or reloads.
+  ctx.effect(
+    () => async () => {
+      if (transport !== undefined) {
+        await transport.dispose()
+        transport = undefined
+      }
+    },
+    'dsh-im: dispose transport',
+  )
 }
 
 export default { name, inject, Config, apply }

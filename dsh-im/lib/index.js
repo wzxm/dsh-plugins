@@ -1,3 +1,6 @@
+import { assertReplyTarget } from "./transport.js";
+import { createMemoryTransport } from "./transport-memory.js";
+import { createFeishuTransport, toNormalizedMessage, toPolicyConfig } from "./transport-feishu.js";
 import { isAbsolute } from "node:path";
 import { credentialRef, isCredentialRefName } from "@deepseek-ai/dsh-credentials";
 import z from "@deepseek-ai/schemastery";
@@ -5,127 +8,6 @@ import { brandString } from "@deepseek-ai/dsh-brand";
 import { boundContextSummary, createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionSeq } from "@deepseek-ai/dsh-session";
 import { createDecipheriv, createHash, timingSafeEqual } from "node:crypto";
-//#region src/feishu-api.ts
-/** Refresh an app token this long before its stated expiry. */
-const TOKEN_REFRESH_SKEW_MS = 6e4;
-/** Read a non-empty string field, or throw naming the endpoint that omitted it. */
-function requiredString(record, field, where) {
-	const value = record[field];
-	if (typeof value !== "string" || value === "") throw new Error(`feishu ${where} response is missing "${field}"`);
-	return value;
-}
-/**
-* Create a Feishu client.
-* @param credentials - the app id/secret pair used for app tokens.
-* @param fetcher - HTTP implementation; injectable for tests.
-* @param baseUrl - API host, overridable to target Lark's international host.
-* @param now - clock, injectable so token-expiry behaviour is testable.
-* @returns the client.
-*/
-function createFeishuApi(credentials, fetcher = fetch, baseUrl = "https://open.feishu.cn", now = () => Date.now()) {
-	let cachedAppToken;
-	let cachedTenantToken;
-	/** Epoch-ms instant a token with `expiresIn` seconds stops being usable. */
-	const usableUntil = (expiresIn) => {
-		const lifetimeSeconds = typeof expiresIn === "number" ? expiresIn : 7200;
-		return now() + Math.max(0, lifetimeSeconds * 1e3 - TOKEN_REFRESH_SKEW_MS);
-	};
-	const request = async (path, init, where) => {
-		const response = await fetcher(`${baseUrl}${path}`, init);
-		let body;
-		try {
-			body = await response.json();
-		} catch {
-			throw new Error(`feishu ${where} returned a non-JSON response (HTTP ${response.status})`);
-		}
-		const record = typeof body === "object" && body !== null && !Array.isArray(body) ? body : {};
-		if (!response.ok || record["code"] !== 0) throw new Error(`feishu ${where} failed: ${String(record["msg"] ?? response.status)}`);
-		return record;
-	};
-	const mintAppToken = async () => {
-		const body = await request("/open-apis/auth/v3/app_access_token/internal", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				app_id: credentials.appId,
-				app_secret: credentials.appSecret
-			})
-		}, "app_access_token");
-		const token = requiredString(body, "app_access_token", "app_access_token");
-		cachedAppToken = {
-			token,
-			usableUntil: usableUntil(body["expire"])
-		};
-		return token;
-	};
-	const appToken = async () => {
-		if (cachedAppToken !== void 0 && now() < cachedAppToken.usableUntil) return cachedAppToken.token;
-		return mintAppToken();
-	};
-	const tenantToken = async () => {
-		if (cachedTenantToken !== void 0 && now() < cachedTenantToken.usableUntil) return cachedTenantToken.token;
-		const body = await request("/open-apis/auth/v3/tenant_access_token/internal", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				app_id: credentials.appId,
-				app_secret: credentials.appSecret
-			})
-		}, "tenant_access_token");
-		const token = requiredString(body, "tenant_access_token", "tenant_access_token");
-		cachedTenantToken = {
-			token,
-			usableUntil: usableUntil(body["expire"])
-		};
-		return token;
-	};
-	return {
-		tenantToken,
-		async authorize(code) {
-			const bearer = await appToken();
-			const data = (await request("/open-apis/authen/v1/oidc/access_token", {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${bearer}`,
-					"content-type": "application/json"
-				},
-				body: JSON.stringify({
-					grant_type: "authorization_code",
-					code
-				})
-			}, "oidc/access_token"))["data"];
-			if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("feishu oidc/access_token response is missing \"data\"");
-			const record = data;
-			const botOpenId = requiredString(record, "open_id", "oidc/access_token");
-			return {
-				tenantAccessToken: await tenantToken(),
-				userAccessToken: requiredString(record, "access_token", "oidc/access_token"),
-				botOpenId,
-				botName: typeof record["name"] === "string" && record["name"] !== "" ? record["name"] : botOpenId,
-				...typeof record["tenant_name"] === "string" ? { tenantName: record["tenant_name"] } : {}
-			};
-		},
-		async sendText(token, target, text, replyTo) {
-			const content = JSON.stringify({ text });
-			await request(replyTo === void 0 ? `/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(target.receiveIdType)}` : `/open-apis/im/v1/messages/${encodeURIComponent(replyTo)}/reply`, {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${token}`,
-					"content-type": "application/json"
-				},
-				body: JSON.stringify(replyTo === void 0 ? {
-					receive_id: target.receiveId,
-					msg_type: "text",
-					content
-				} : {
-					msg_type: "text",
-					content
-				})
-			}, "im/v1/messages");
-		}
-	};
-}
-//#endregion
 //#region src/feishu.ts
 /**
 * Derive the reply destination for one message.
@@ -345,106 +227,6 @@ function createDispatcher(ctx, config, api) {
 	};
 }
 //#endregion
-//#region src/body.ts
-/** HTTP refusal whose message is safe to return to the sender verbatim. */
-var CallbackHttpError = class extends Error {
-	status;
-	name = "CallbackHttpError";
-	constructor(status, message) {
-		super(message);
-		this.status = status;
-	}
-};
-/** Parse a decimal Content-Length or reject an ambiguous header. */
-function contentLength(request) {
-	const value = request.headers["content-length"];
-	if (value === void 0) return void 0;
-	if (!/^(0|[1-9]\d*)$/.test(value)) throw new CallbackHttpError(400, "invalid Content-Length");
-	const length = Number(value);
-	if (!Number.isSafeInteger(length)) throw new CallbackHttpError(413, "request body is too large");
-	return length;
-}
-/**
-* Read one request body as exact, bounded UTF-8 text.
-* @param request - incoming request before any parser consumes it.
-* @param maxBodyBytes - positive byte ceiling.
-* @returns the decoded body after EOF.
-* @throws {CallbackHttpError} for invalid length, excess bytes, invalid UTF-8, or an aborted stream.
-*/
-async function readBoundedUtf8Body(request, maxBodyBytes) {
-	const declared = contentLength(request);
-	if (declared !== void 0 && declared > maxBodyBytes) {
-		request.resume();
-		throw new CallbackHttpError(413, "request body is too large");
-	}
-	const chunks = [];
-	let size = 0;
-	try {
-		for await (const raw of request) {
-			const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-			size += chunk.byteLength;
-			if (size > maxBodyBytes) {
-				request.resume();
-				throw new CallbackHttpError(413, "request body is too large");
-			}
-			chunks.push(chunk);
-		}
-	} catch (error) {
-		if (error instanceof CallbackHttpError) throw error;
-		throw new CallbackHttpError(400, "request body was aborted");
-	}
-	if (!request.complete) throw new CallbackHttpError(400, "request body was aborted");
-	try {
-		return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, size));
-	} catch {
-		throw new CallbackHttpError(400, "request body is not valid UTF-8");
-	}
-}
-//#endregion
-//#region src/decrypt.ts
-/**
-* Decryption of an encrypted Feishu event callback.
-*
-* When an Encrypt Key is configured, Feishu replaces the whole callback body
-* with `{"encrypt":"<base64>"}`. The plaintext is recovered as:
-*
-*     key        = SHA256(encryptKey)          // raw 32 bytes, not hex
-*     payload    = base64decode(encrypt)
-*     iv         = payload[0..16]
-*     ciphertext = payload[16..]
-*     plaintext  = AES-256-CBC(key, iv, ciphertext), PKCS#7 unpadded
-*
-* Two details are easy to get wrong and are deliberate here:
-*
-* - **The key is the digest bytes, not the hex string.** Passing
-*   `digest('hex')` would give a 64-byte key and `createDecipheriv` would reject
-*   it outright.
-* - **The IV is transmitted in-band**, prefixed to the ciphertext inside the
-*   same base64 blob. It is not a separate header.
-*
-* @module dsh-im/decrypt
-*/
-/** Length of the AES block, and therefore of the in-band IV prefix. */
-const IV_BYTES = 16;
-/**
-* Decrypt one Feishu `encrypt` payload.
-* @param encrypted - the base64 `encrypt` field from the callback body.
-* @param encryptKey - the app's Encrypt Key, used as digest input.
-* @returns the decrypted UTF-8 JSON text.
-* @throws {Error} when the payload is too short to hold an IV, or the ciphertext
-*   is not authentic — a wrong key or a tampered body fails here, because
-*   PKCS#7 unpadding rejects a plaintext whose padding is malformed.
-*/
-function decryptFeishuEvent(encrypted, encryptKey) {
-	const key = createHash("sha256").update(encryptKey).digest();
-	const payload = Buffer.from(encrypted, "base64");
-	if (payload.length <= IV_BYTES) throw new Error("feishu encrypted payload is too short to contain an IV");
-	const iv = payload.subarray(0, IV_BYTES);
-	const ciphertext = payload.subarray(IV_BYTES);
-	const decipher = createDecipheriv("aes-256-cbc", key, iv);
-	return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
-}
-//#endregion
 //#region src/event.ts
 /**
 * Read the handshake challenge from either wire form.
@@ -580,6 +362,127 @@ function normalizeCallback(callback, botOpenId) {
 	};
 }
 //#endregion
+//#region src/feishu-api.ts
+/** Refresh an app token this long before its stated expiry. */
+const TOKEN_REFRESH_SKEW_MS = 6e4;
+/** Read a non-empty string field, or throw naming the endpoint that omitted it. */
+function requiredString(record, field, where) {
+	const value = record[field];
+	if (typeof value !== "string" || value === "") throw new Error(`feishu ${where} response is missing "${field}"`);
+	return value;
+}
+/**
+* Create a Feishu client.
+* @param credentials - the app id/secret pair used for app tokens.
+* @param fetcher - HTTP implementation; injectable for tests.
+* @param baseUrl - API host, overridable to target Lark's international host.
+* @param now - clock, injectable so token-expiry behaviour is testable.
+* @returns the client.
+*/
+function createFeishuApi(credentials, fetcher = fetch, baseUrl = "https://open.feishu.cn", now = () => Date.now()) {
+	let cachedAppToken;
+	let cachedTenantToken;
+	/** Epoch-ms instant a token with `expiresIn` seconds stops being usable. */
+	const usableUntil = (expiresIn) => {
+		const lifetimeSeconds = typeof expiresIn === "number" ? expiresIn : 7200;
+		return now() + Math.max(0, lifetimeSeconds * 1e3 - TOKEN_REFRESH_SKEW_MS);
+	};
+	const request = async (path, init, where) => {
+		const response = await fetcher(`${baseUrl}${path}`, init);
+		let body;
+		try {
+			body = await response.json();
+		} catch {
+			throw new Error(`feishu ${where} returned a non-JSON response (HTTP ${response.status})`);
+		}
+		const record = typeof body === "object" && body !== null && !Array.isArray(body) ? body : {};
+		if (!response.ok || record["code"] !== 0) throw new Error(`feishu ${where} failed: ${String(record["msg"] ?? response.status)}`);
+		return record;
+	};
+	const mintAppToken = async () => {
+		const body = await request("/open-apis/auth/v3/app_access_token/internal", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app_id: credentials.appId,
+				app_secret: credentials.appSecret
+			})
+		}, "app_access_token");
+		const token = requiredString(body, "app_access_token", "app_access_token");
+		cachedAppToken = {
+			token,
+			usableUntil: usableUntil(body["expire"])
+		};
+		return token;
+	};
+	const appToken = async () => {
+		if (cachedAppToken !== void 0 && now() < cachedAppToken.usableUntil) return cachedAppToken.token;
+		return mintAppToken();
+	};
+	const tenantToken = async () => {
+		if (cachedTenantToken !== void 0 && now() < cachedTenantToken.usableUntil) return cachedTenantToken.token;
+		const body = await request("/open-apis/auth/v3/tenant_access_token/internal", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				app_id: credentials.appId,
+				app_secret: credentials.appSecret
+			})
+		}, "tenant_access_token");
+		const token = requiredString(body, "tenant_access_token", "tenant_access_token");
+		cachedTenantToken = {
+			token,
+			usableUntil: usableUntil(body["expire"])
+		};
+		return token;
+	};
+	return {
+		tenantToken,
+		async authorize(code) {
+			const bearer = await appToken();
+			const data = (await request("/open-apis/authen/v1/oidc/access_token", {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${bearer}`,
+					"content-type": "application/json"
+				},
+				body: JSON.stringify({
+					grant_type: "authorization_code",
+					code
+				})
+			}, "oidc/access_token"))["data"];
+			if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("feishu oidc/access_token response is missing \"data\"");
+			const record = data;
+			const botOpenId = requiredString(record, "open_id", "oidc/access_token");
+			return {
+				tenantAccessToken: await tenantToken(),
+				userAccessToken: requiredString(record, "access_token", "oidc/access_token"),
+				botOpenId,
+				botName: typeof record["name"] === "string" && record["name"] !== "" ? record["name"] : botOpenId,
+				...typeof record["tenant_name"] === "string" ? { tenantName: record["tenant_name"] } : {}
+			};
+		},
+		async sendText(token, target, text, replyTo) {
+			const content = JSON.stringify({ text });
+			await request(replyTo === void 0 ? `/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(target.receiveIdType)}` : `/open-apis/im/v1/messages/${encodeURIComponent(replyTo)}/reply`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${token}`,
+					"content-type": "application/json"
+				},
+				body: JSON.stringify(replyTo === void 0 ? {
+					receive_id: target.receiveId,
+					msg_type: "text",
+					content
+				} : {
+					msg_type: "text",
+					content
+				})
+			}, "im/v1/messages");
+		}
+	};
+}
+//#endregion
 //#region src/signature.ts
 /**
 * Verify a Feishu/Lark event-subscription callback signature.
@@ -615,113 +518,48 @@ function verifyFeishuSignature(raw, timestamp, nonce, signature, encryptKey) {
 	return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
 //#endregion
-//#region src/handler.ts
-/** Send one empty or plain-text response exactly once. */
-function respond(response, status, message) {
-	if (message === void 0) {
-		response.writeHead(status);
-		response.end();
-		return;
-	}
-	response.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
-	response.end(message);
-}
-/** Answer with a JSON body, for the challenge handshake. */
-function respondJson(response, status, value) {
-	const body = JSON.stringify(value);
-	response.writeHead(status, {
-		"content-type": "application/json; charset=utf-8",
-		"content-length": Buffer.byteLength(body)
-	});
-	response.end(body);
-}
-/** Read one unambiguous non-empty request header. */
-function requiredHeader(request, name) {
-	const values = request.headersDistinct[name];
-	const value = values?.[0];
-	if (values?.length !== 1 || value === void 0 || value.trim() === "") throw new CallbackHttpError(400, `missing ${name} header`);
-	return value;
-}
-/** Whether Content-Type names JSON, with at most one UTF-8 charset parameter. */
-function isJsonContentType(value) {
-	if (value === void 0) return false;
-	const [mediaType, parameter, ...extra] = value.split(";").map((part) => part.trim());
-	if (mediaType?.toLowerCase() !== "application/json") return false;
-	if (parameter === void 0) return true;
-	return extra.length === 0 && /^charset=(?:utf-8|"utf-8")$/i.test(parameter);
-}
+//#region src/decrypt.ts
 /**
-* Unwrap a `{"encrypt":"…"}` envelope.
-* @param raw - the verified raw body.
-* @param encryptKey - the configured Encrypt Key.
-* @returns the plaintext JSON, or the original body when it is not an envelope.
-* @throws {CallbackHttpError} when the body claims to be encrypted but cannot be decrypted.
+* Decryption of an encrypted Feishu event callback.
+*
+* When an Encrypt Key is configured, Feishu replaces the whole callback body
+* with `{"encrypt":"<base64>"}`. The plaintext is recovered as:
+*
+*     key        = SHA256(encryptKey)          // raw 32 bytes, not hex
+*     payload    = base64decode(encrypt)
+*     iv         = payload[0..16]
+*     ciphertext = payload[16..]
+*     plaintext  = AES-256-CBC(key, iv, ciphertext), PKCS#7 unpadded
+*
+* Two details are easy to get wrong and are deliberate here:
+*
+* - **The key is the digest bytes, not the hex string.** Passing
+*   `digest('hex')` would give a 64-byte key and `createDecipheriv` would reject
+*   it outright.
+* - **The IV is transmitted in-band**, prefixed to the ciphertext inside the
+*   same base64 blob. It is not a separate header.
+*
+* @module dsh-im/decrypt
 */
-function unwrap(raw, encryptKey) {
-	let parsed;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return raw;
-	}
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return raw;
-	const encrypted = parsed["encrypt"];
-	if (typeof encrypted !== "string" || encrypted === "") return raw;
-	if (encryptKey === void 0 || encryptKey === "") throw new CallbackHttpError(503, "an encrypted callback arrived but no Encrypt Key is configured");
-	try {
-		return decryptFeishuEvent(encrypted, encryptKey);
-	} catch {
-		throw new CallbackHttpError(401, "encrypted callback could not be decrypted");
-	}
-}
+/** Length of the AES block, and therefore of the in-band IV prefix. */
+const IV_BYTES = 16;
 /**
-* Create the callback handler for one bot.
-* @param _ctx - plugin context, reserved for logging.
-* @param config - resolved ingress configuration.
-* @returns an HTTP handler that answers after in-memory dispatch.
+* Decrypt one Feishu `encrypt` payload.
+* @param encrypted - the base64 `encrypt` field from the callback body.
+* @param encryptKey - the app's Encrypt Key, used as digest input.
+* @returns the decrypted UTF-8 JSON text.
+* @throws {Error} when the payload is too short to hold an IV, or the ciphertext
+*   is not authentic — a wrong key or a tampered body fails here, because
+*   PKCS#7 unpadding rejects a plaintext whose padding is malformed.
 */
-function createFeishuHandler(_ctx, config) {
-	return async (request, response) => {
-		try {
-			if (request.method !== "POST") {
-				response.setHeader("allow", "POST");
-				throw new CallbackHttpError(405, "method not allowed");
-			}
-			if (!isJsonContentType(request.headers["content-type"])) throw new CallbackHttpError(415, "content type must be application/json");
-			const raw = await readBoundedUtf8Body(request, config.maxBodyBytes);
-			if (config.encryptKey !== void 0 && config.encryptKey !== "") {
-				if (!verifyFeishuSignature(raw, requiredHeader(request, "x-lark-request-timestamp"), requiredHeader(request, "x-lark-request-nonce"), requiredHeader(request, "x-lark-signature"), config.encryptKey)) throw new CallbackHttpError(401, "invalid signature");
-			}
-			const plaintext = unwrap(raw, config.encryptKey);
-			let callback;
-			try {
-				callback = parseCallback(plaintext);
-			} catch {
-				throw new CallbackHttpError(400, "callback body is not a valid JSON object");
-			}
-			const challenge = verificationChallenge(callback);
-			if (challenge !== void 0) {
-				const presented = verificationToken(callback);
-				if (config.verificationToken !== void 0 && config.verificationToken !== "" && presented !== config.verificationToken) throw new CallbackHttpError(401, "invalid verification token");
-				respondJson(response, 200, { challenge });
-				return;
-			}
-			const message = normalizeCallback(callback, config.botOpenId);
-			if (message === null) {
-				respond(response, 200);
-				return;
-			}
-			await config.onMessage(message);
-			respond(response, 200);
-		} catch (error) {
-			if (error instanceof CallbackHttpError) {
-				respond(response, error.status, error.message);
-				return;
-			}
-			_ctx.logger.warn("dsh-im: callback handling failed");
-			respond(response, 500, "callback handling failed");
-		}
-	};
+function decryptFeishuEvent(encrypted, encryptKey) {
+	const key = createHash("sha256").update(encryptKey).digest();
+	const payload = Buffer.from(encrypted, "base64");
+	if (payload.length <= IV_BYTES) throw new Error("feishu encrypted payload is too short to contain an IV");
+	const iv = payload.subarray(0, IV_BYTES);
+	const ciphertext = payload.subarray(IV_BYTES);
+	const decipher = createDecipheriv("aes-256-cbc", key, iv);
+	return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 }
 //#endregion
 //#region src/bot-store.ts
@@ -790,14 +628,15 @@ var QuickOnboarding = class {
 //#region src/index.ts
 const name = "dsh-im";
 /**
-* Only the web server is a hard dependency: it is the socket this plugin
-* registers on, and there is nothing to do without it.
+* Only the web server is a hard dependency: it is needed for the OAuth callback
+* route, which is the only remaining HTTP endpoint.
 */
 const inject = ["webServer"];
-/** Validate route and ref facts a schema cannot express. */
+/** Validate config facts a schema cannot express. */
 function assertConfig(config) {
-	for (const [field, value] of [["callbackPath", config.callbackPath], ["oauthCallbackPath", config.oauthCallbackPath]]) if (!value.startsWith("/") || value === "/" || value.endsWith("/") || value.includes("?") || value.includes("#")) throw new Error(`dsh-im ${field} must be an absolute non-root pathname without a trailing slash, query, or fragment`);
-	if (config.callbackPath === config.oauthCallbackPath) throw new Error("dsh-im callbackPath and oauthCallbackPath must differ");
+	if (config.oauthCallbackPath !== void 0 && config.oauthCallbackPath !== "") {
+		if (!config.oauthCallbackPath.startsWith("/") || config.oauthCallbackPath === "/" || config.oauthCallbackPath.endsWith("/") || config.oauthCallbackPath.includes("?") || config.oauthCallbackPath.includes("#")) throw new Error(`dsh-im oauthCallbackPath must be an absolute non-root pathname without a trailing slash, query, or fragment`);
+	}
 	if (config.workspacePath !== void 0 && config.workspacePath !== "" && !isAbsolute(config.workspacePath)) throw new Error(`dsh-im workspacePath must be an absolute path, got ${JSON.stringify(config.workspacePath)}`);
 	if (config.maxReplyChars !== void 0 && config.maxReplyChars < 1) throw new Error("dsh-im maxReplyChars must be at least 1");
 }
@@ -810,22 +649,19 @@ function assertConfig(config) {
 * plugin exports one).
 */
 const Config = z.object({
-	callbackPath: z.string().default("/webhooks/feishu"),
 	oauthCallbackPath: z.string().default("/oauth/feishu/callback"),
-	encryptKeyRef: z.string().default(""),
-	verificationTokenRef: z.string().default(""),
 	appIdRef: z.string().default(""),
 	appSecretRef: z.string().default(""),
+	domain: z.string().default("feishu"),
 	botOpenId: z.string().default(""),
 	botId: z.string().default("feishu"),
 	workspacePath: z.string().default(""),
 	agentPreset: z.string().default("standard"),
 	permissionPreset: z.string().default("default"),
-	maxReplyChars: z.natural().default(4e3),
-	maxBodyBytes: z.natural().default(1048576)
+	maxReplyChars: z.natural().default(4e3)
 });
 /**
-* Resolve one optional credential reference.
+* Resolve one credential reference.
 * @param ctx - plugin context supplying the credential provider, if any.
 * @param ref - the reference name; empty means "not configured".
 * @returns the secret value, or `undefined`.
@@ -833,7 +669,7 @@ const Config = z.object({
 async function resolveSecret(ctx, ref) {
 	if (ref === "") return void 0;
 	if (!isCredentialRefName(ref)) {
-		ctx.logger.warn(`dsh-im: credential ref "${ref}" is not a valid name; use a shell-style identifier such as FEISHU_ENCRYPT_KEY`);
+		ctx.logger.warn(`dsh-im: credential ref "${ref}" is not a valid name; use a shell-style identifier such as FEISHU_APP_ID`);
 		return;
 	}
 	const credentials = ctx.get("credentials");
@@ -852,23 +688,17 @@ function apply(ctx, config) {
 	assertConfig(config);
 	const resolved = config;
 	/**
-	* Secrets are read once at activation. Re-resolving per request would make
-	* every callback depend on the credential provider staying responsive, and a
-	* rotated key can be picked up by reloading the plugin.
+	* The transport — set once async init completes, then reused for the lifetime
+	* of the plugin. A restart of the plugin (update or reload) discards it.
 	*/
-	let encryptKey;
-	let verificationToken;
-	/** Fixed at activation; a changed open_id needs a plugin reload anyway. */
-	const botOpenId = resolved.botOpenId;
+	let transport;
 	/** Set once the dispatcher is wired by the Agent-stack injection below. */
 	let dispatch;
-	/** Set once the app credentials resolve into a usable API client. */
-	let api;
 	/** The Agent stack context, supplied by `ctx.inject` when those services exist. */
 	let agentStack;
 	/** Logged once each, so a busy callback cannot flood the log. */
 	let warnedNoStack = false;
-	let warnedNoApi = false;
+	let warnedNoTransport = false;
 	const onMessage = async (message) => {
 		if (agentStack === void 0) {
 			if (!warnedNoStack) {
@@ -877,10 +707,10 @@ function apply(ctx, config) {
 			}
 			return;
 		}
-		if (api === void 0) {
-			if (!warnedNoApi) {
-				warnedNoApi = true;
-				ctx.logger.warn("dsh-im: no Feishu app credentials are configured, so replies cannot be sent; set appIdRef and appSecretRef");
+		if (transport === void 0) {
+			if (!warnedNoTransport) {
+				warnedNoTransport = true;
+				ctx.logger.warn("dsh-im: no Feishu transport is connected, so replies cannot be sent; check appIdRef and appSecretRef");
 			}
 			return;
 		}
@@ -890,29 +720,19 @@ function apply(ctx, config) {
 			agentPreset: resolved.agentPreset,
 			permissionPreset: resolved.permissionPreset,
 			maxReplyChars: resolved.maxReplyChars
-		}, api);
+		}, {
+			tenantToken: async () => "",
+			authorize: async () => {
+				throw new Error("not available over WebSocket");
+			},
+			sendText: async (_token, target, text, replyTo) => {
+				await transport.sendText(target, text, replyTo === void 0 ? {} : { replyTo });
+			}
+		});
 		const result = await dispatch(message);
 		if (!result.replied) ctx.logger.info(`dsh-im: no reply for ${message.eventId} (${result.reason ?? "unknown"})`);
 	};
-	const handler = createFeishuHandler(ctx, {
-		get encryptKey() {
-			return encryptKey;
-		},
-		get verificationToken() {
-			return verificationToken;
-		},
-		get botOpenId() {
-			return botOpenId;
-		},
-		maxBodyBytes: resolved.maxBodyBytes,
-		onMessage
-	});
-	ctx.effect(() => ctx.webServer.register({
-		kind: "exact",
-		path: resolved.callbackPath,
-		handler
-	}), `dsh-im: ${resolved.callbackPath}`);
-	ctx.effect(() => ctx.webServer.register({
+	if (resolved.oauthCallbackPath !== "") ctx.effect(() => ctx.webServer.register({
 		kind: "exact",
 		path: resolved.oauthCallbackPath,
 		handler: (_req, res) => {
@@ -925,7 +745,7 @@ function apply(ctx, config) {
 	* Wire the dispatcher once the Agent stack exists.
 	*
 	* `ctx.inject` (rather than a hard `inject` on this plugin) keeps route
-	* registration independent of the Agent stack: the callback route must answer
+	* registration independent of the Agent stack: the OAuth callback must answer
 	* in a profile that has no agent loop, and the ordering between this plugin
 	* and the bundle rows providing these services is not guaranteed.
 	*/
@@ -941,18 +761,42 @@ function apply(ctx, config) {
 	});
 	(async () => {
 		try {
-			encryptKey = await resolveSecret(ctx, resolved.encryptKeyRef);
-			verificationToken = await resolveSecret(ctx, resolved.verificationTokenRef);
 			const appId = await resolveSecret(ctx, resolved.appIdRef);
 			const appSecret = await resolveSecret(ctx, resolved.appSecretRef);
-			if (appId !== void 0 && appSecret !== void 0) api = createFeishuApi({
-				appId,
-				appSecret
-			});
+			if (appId !== void 0 && appSecret !== void 0) {
+				if (transport !== void 0) await transport.dispose();
+				const { createFeishuTransport } = await import("./transport-feishu.js");
+				transport = await createFeishuTransport({
+					appId,
+					appSecret,
+					domain: resolved.domain,
+					logger: {
+						debug: (m) => ctx.logger.debug("[dsh-im] " + m),
+						info: (m) => ctx.logger.info("[dsh-im] " + m),
+						warn: (m) => ctx.logger.warn("[dsh-im] " + m),
+						error: (m) => ctx.logger.error("[dsh-im] " + m)
+					}
+				});
+				transport.onMessage(onMessage);
+				transport.onConnectionChange((state) => {
+					ctx.logger.info(`dsh-im: Feishu connection state -> ${state}`);
+				});
+				transport.onReject((rejected) => {
+					ctx.logger.info(`dsh-im: message ${rejected.messageId} rejected (${rejected.reason})`);
+				});
+				await transport.connect();
+				ctx.logger.info("dsh-im: Feishu WebSocket transport connected");
+			} else ctx.logger.info("dsh-im: Feishu credentials not configured; transport not started. Set appIdRef and appSecretRef, or trigger the onboarding flow.");
 		} catch (error) {
-			ctx.logger.warn(error instanceof Error ? error : new Error(String(error)));
+			ctx.logger.warn("dsh-im: failed to start Feishu transport: " + (error instanceof Error ? error.message : String(error)));
 		}
 	})();
+	ctx.effect(() => async () => {
+		if (transport !== void 0) {
+			await transport.dispose();
+			transport = void 0;
+		}
+	}, "dsh-im: dispose transport");
 }
 var src_default = {
 	name,
@@ -961,6 +805,6 @@ var src_default = {
 	apply
 };
 //#endregion
-export { BotStore, Config, ConversationQueue, QuickOnboarding, apply, conversationKey, createDispatcher, createFeishuApi, decryptFeishuEvent, src_default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, readTurnOutput, receiveTarget, stripBotMentions, verificationChallenge, verificationToken, verifyFeishuSignature };
+export { BotStore, Config, ConversationQueue, QuickOnboarding, apply, assertReplyTarget, conversationKey, createDispatcher, createFeishuApi, createFeishuTransport, createMemoryTransport, decryptFeishuEvent, src_default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, readTurnOutput, receiveTarget, stripBotMentions, toNormalizedMessage, toPolicyConfig, verificationChallenge, verificationToken, verifyFeishuSignature };
 
 //# sourceMappingURL=index.js.map

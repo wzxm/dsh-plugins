@@ -171,6 +171,9 @@ describe('createFeishuHandler — signature is verified before anything else', (
   it('rejects a bad signature with 401 and dispatches nothing', async () => {
     const { handler, dispatched } = harness()
     const res = await postEncrypted(handler, envelope(), { tamperSignature: true })
+    // The signature verifies but the ciphertext was encrypted with a different
+    // key, so decryption produces garbage that fails JSON parsing. The handler
+    // returns 401 and does not dispatch.
     expect(res.status).toBe(401)
     expect(dispatched).toHaveLength(0)
   })
@@ -189,6 +192,8 @@ describe('createFeishuHandler — signature is verified before anything else', (
       request(body, { headers: { 'x-lark-request-timestamp': timestamp, 'x-lark-request-nonce': nonce, 'x-lark-signature': hmac } }),
       res,
     )
+    // The HMAC does not match a plain-SHA-256 signature, so the
+    // handler rejects the body with 401.
     expect(res.status).toBe(401)
     expect(dispatched).toHaveLength(0)
   })
@@ -222,6 +227,9 @@ describe('createFeishuHandler — decryption', () => {
       request(body, { headers: { 'x-lark-request-timestamp': timestamp, 'x-lark-request-nonce': nonce, 'x-lark-signature': sign(body, timestamp, nonce, ENCRYPT_KEY) } }),
       res,
     )
+    // The signature verifies but the ciphertext was encrypted with a different
+    // key, so decryption produces garbage that fails JSON parsing. The handler
+    // returns 401 and does not dispatch.
     expect(res.status).toBe(401)
     expect(dispatched).toHaveLength(0)
   })

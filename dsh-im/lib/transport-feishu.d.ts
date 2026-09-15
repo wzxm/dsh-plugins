@@ -1,5 +1,4 @@
-import { l as NormalizedMessage } from "./feishu-D_fJmJcC.js";
-import { ImTransport } from "./transport.js";
+import { _ as NormalizedMessage, n as ImTransport } from "./transport-D2yPiUtg.js";
 //#region src/transport-feishu.d.ts
 /** Minimal logging surface, so this module does not depend on Cordis. */
 interface TransportLogger {

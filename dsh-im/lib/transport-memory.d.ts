@@ -1,5 +1,4 @@
-import { l as NormalizedMessage, t as ReplyTarget } from "./feishu-D_fJmJcC.js";
-import { ConnectionState, ImTransport, RejectedMessage, SendOptions } from "./transport.js";
+import { _ as NormalizedMessage, a as SendOptions, i as RejectedMessage, l as ReplyTarget, n as ImTransport, t as ConnectionState } from "./transport-D2yPiUtg.js";
 //#region src/transport-memory.d.ts
 /** One message the transport was asked to send. */
 interface SentMessage {

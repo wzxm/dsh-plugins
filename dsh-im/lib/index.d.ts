@@ -1,4 +1,6 @@
-import { a as FeishuEventHeader, c as FeishuMessageEvent, d as messageText, f as normalizeCallback, g as verificationToken, h as verificationChallenge, i as FeishuCallback, l as NormalizedMessage, m as stripBotMentions, n as conversationKey, o as FeishuMention, p as parseCallback, r as receiveTarget, s as FeishuMessage, t as ReplyTarget, u as isBotMentioned } from "./feishu-D_fJmJcC.js";
+import { C as verificationChallenge, S as stripBotMentions, _ as NormalizedMessage, a as SendOptions, b as normalizeCallback, c as assertReplyTarget, d as receiveTarget, f as FeishuCallback, g as FeishuMessageEvent, h as FeishuMessage, i as RejectedMessage, l as ReplyTarget, m as FeishuMention, n as ImTransport, o as SendReceipt, p as FeishuEventHeader, r as MessageHandler, s as Unsubscribe, t as ConnectionState, u as conversationKey, v as isBotMentioned, w as verificationToken, x as parseCallback, y as messageText } from "./transport-D2yPiUtg.js";
+import { MemoryTransport, MemoryTransportOptions, SentMessage, createMemoryTransport } from "./transport-memory.js";
+import { FeishuChannel, FeishuChannelConfig, FeishuChannelEvents, FeishuPolicyOptions, FeishuSdk, FeishuSdkLoader, FeishuTransportOptions, SdkError, SdkMessage, SdkReject, TransportLogger, createFeishuTransport, toNormalizedMessage, toPolicyConfig } from "./transport-feishu.js";
 import z from "@deepseek-ai/schemastery";
 import { Session } from "@deepseek-ai/dsh-session";
 import { Context } from "@deepseek-ai/cordis";
@@ -224,34 +226,31 @@ declare class QuickOnboarding {
 //#region src/index.d.ts
 declare const name = "dsh-im";
 /**
- * Only the web server is a hard dependency: it is the socket this plugin
- * registers on, and there is nothing to do without it.
+ * Only the web server is a hard dependency: it is needed for the OAuth callback
+ * route, which is the only remaining HTTP endpoint.
  */
 declare const inject: string[];
 interface Config {
-  /** Exact absolute path for Feishu event callbacks. */
-  callbackPath: string;
-  /** Exact absolute path for the OAuth redirect. */
+  /** Exact absolute path for the Feishu OAuth callback. */
   oauthCallbackPath: string;
   /**
-   * Credential reference holding the Feishu Encrypt Key. When present, inbound
-   * callbacks are signature-verified and decrypted. Empty disables both, which
-   * is only appropriate for a trusted local tunnel during setup.
+   * Credential reference holding the app_id of the Feishu/Lark bot.
+   *
+   * Required for the WebSocket transport; without it the plugin cannot connect
+   * and logs a warning instead. May be left empty when onboarding has not
+   * completed yet.
    */
-  encryptKeyRef?: string;
-  /** Credential reference holding the Verification Token. */
-  verificationTokenRef?: string;
-  /** Credential reference holding the app_id, used for token exchanges. */
   appIdRef?: string;
   /** Credential reference holding the app_secret. */
   appSecretRef?: string;
+  /** Which brand to use: `feishu` or `lark`. Defaults to `feishu`. */
+  domain?: string;
   /**
-   * The bot's own `open_id`, matched against group-message mentions.
+   * The bot's own `open_id`.
    *
-   * This cannot be discovered from an inbound callback: Feishu identifies the
-   * *author* of a mention, never the reader. Without it every group message is
-   * discarded (a group message that does not mention the bot is not for us), so
-   * it is required for group use even though p2p works without it.
+   * Under WebSocket transport the SDK discovers this automatically via
+   * `GET /open-apis/bot/v3/info` during `connect()`, so configuring it here
+   * is optional. A value supplied here overrides the auto-detected one.
    */
   botOpenId?: string;
   /** Bot instance id; scopes conversation keys so two bots never share a Session. */
@@ -264,8 +263,6 @@ interface Config {
   permissionPreset?: string;
   /** Ceiling on one reply, in characters, before truncation. */
   maxReplyChars?: number;
-  /** Raw callback body ceiling in bytes. */
-  maxBodyBytes?: number;
 }
 /**
  * The declared configuration.
@@ -284,5 +281,5 @@ declare const _default: {
   apply: typeof apply;
 };
 //#endregion
-export { BotRecord, BotStore, Config, ConversationBinding, ConversationQueue, DispatchResult, DispatcherConfig, FeishuApi, FeishuCallback, FeishuCredentials, FeishuEventHeader, FeishuIdentity, FeishuMention, FeishuMessage, FeishuMessageEvent, NormalizedMessage, QuickOnboarding, QuickSession, QuickState, ReplyTarget, TurnOutput, apply, conversationKey, createDispatcher, createFeishuApi, decryptFeishuEvent, _default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, readTurnOutput, receiveTarget, stripBotMentions, verificationChallenge, verificationToken, verifyFeishuSignature };
+export { BotRecord, BotStore, Config, ConnectionState, ConversationBinding, ConversationQueue, DispatchResult, DispatcherConfig, FeishuApi, FeishuCallback, FeishuChannel, FeishuChannelConfig, FeishuChannelEvents, FeishuCredentials, FeishuEventHeader, FeishuIdentity, FeishuMention, FeishuMessage, FeishuMessageEvent, FeishuPolicyOptions, FeishuSdk, FeishuSdkLoader, FeishuTransportOptions, ImTransport, MemoryTransport, MemoryTransportOptions, MessageHandler, NormalizedMessage, QuickOnboarding, QuickSession, QuickState, RejectedMessage, ReplyTarget, SdkError, SdkMessage, SdkReject, SendOptions, SendReceipt, SentMessage, TransportLogger, TurnOutput, Unsubscribe, apply, assertReplyTarget, conversationKey, createDispatcher, createFeishuApi, createFeishuTransport, createMemoryTransport, decryptFeishuEvent, _default as default, inject, isBotMentioned, messageText, name, normalizeCallback, parseCallback, readTurnOutput, receiveTarget, stripBotMentions, toNormalizedMessage, toPolicyConfig, verificationChallenge, verificationToken, verifyFeishuSignature };
 //# sourceMappingURL=index.d.ts.map
