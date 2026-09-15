@@ -4,3 +4,6 @@
 # executes no dependency lifecycle scripts at all.
 allowBuilds:
   esbuild: false
+  protobufjs: set this to true or false
+minimumReleaseAgeExclude:
+  - '@larksuiteoapi/node-sdk@1.74.0'
