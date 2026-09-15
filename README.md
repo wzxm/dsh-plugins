@@ -5,6 +5,7 @@
 | 插件 | 包名 | 文档 |
 | --- | --- | --- |
 | [dsh-mysql](./dsh-mysql/) | `@wzxm/dsh-mysql` | [中文](./dsh-mysql/README.zh.md) · [English](./dsh-mysql/README.md) |
+| [dsh-im](./dsh-im/) | `@wzxm/dsh-im` | [中文](./dsh-im/README.zh.md) · [English](./dsh-im/README.md) |
 
 ## 安装
 
